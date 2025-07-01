@@ -92,7 +92,7 @@ const char* LOGIN_PAGE_HTML = R"rawliteral(
     <div class="login-container">
         <div class="logo">
             <h1>🔒 ESP32 Secure</h1>
-            <p>LAN Dashboard</p>
+            <p>LAN Dashboard + IoT Control</p>
         </div>
         <form method="POST" action="/login">
             <div class="form-group">
@@ -105,7 +105,8 @@ const char* LOGIN_PAGE_HTML = R"rawliteral(
             <strong>🛡️ Zabezpieczenia:</strong><br>
             • IP Whitelist + Rate limiting<br>
             • Sesje z automatycznym timeout<br>
-            • Blokada po przekroczeniu limitów
+            • Blokada po przekroczeniu limitów<br>
+            • 📡 UART komunikacja z IoT
         </div>
     </div>
 </body>
@@ -117,7 +118,10 @@ const char* DASHBOARD_JS = R"rawliteral(
         function checkLEDStatus() {
             fetch('/api/led/status')
                 .then(response => response.json())
-                .then(data => updateLEDUI(data.state))
+                .then(data => {
+                    updateLEDUI(data.state);
+                    updateIoTStatus(data.iot_connected, data.source);
+                })
                 .catch(error => console.error('Błąd sprawdzania stanu LED:', error));
         }
         
@@ -136,9 +140,28 @@ const char* DASHBOARD_JS = R"rawliteral(
             }
         }
         
+        function updateIoTStatus(connected, source) {
+            const iotIndicator = document.getElementById('iotStatus');
+            if (iotIndicator) {
+                if (connected) {
+                    iotIndicator.textContent = '🤖 IoT: Połączony';
+                    iotIndicator.className = 'iot-status iot-connected';
+                } else {
+                    iotIndicator.textContent = '🤖 IoT: Rozłączony (' + (source || 'cache') + ')';
+                    iotIndicator.className = 'iot-status iot-disconnected';
+                }
+            }
+        }
+        
         function toggleLED() {
             const ledSwitch = document.getElementById('ledSwitch');
             const newState = ledSwitch.checked;
+            
+            // Pokaż loading
+            const ledStatus = document.getElementById('ledStatus');
+            const originalText = ledStatus.textContent;
+            ledStatus.textContent = 'Wysyłanie komendy...';
+            ledStatus.className = 'led-status led-loading';
             
             fetch('/api/led/toggle', {
                 method: 'POST',
@@ -148,12 +171,47 @@ const char* DASHBOARD_JS = R"rawliteral(
                 body: JSON.stringify({ state: newState })
             })
             .then(response => response.ok ? response.json() : Promise.reject('Błąd serwera'))
-            .then(data => updateLEDUI(data.state))
+            .then(data => {
+                updateLEDUI(data.state);
+                updateIoTStatus(data.iot_connected);
+                
+                // Pokaż status komendy
+                if (data.status === 'queued') {
+                    showNotification('Komenda w kolejce - IoT rozłączony', 'warning');
+                } else if (data.pending_commands > 0) {
+                    showNotification('Komenda wysłana, oczekiwanie na potwierdzenie...', 'info');
+                }
+            })
             .catch(error => {
                 console.error('Błąd przełączania LED:', error);
                 ledSwitch.checked = !newState;
-                alert('Błąd podczas przełączania LED');
+                ledStatus.textContent = originalText;
+                ledStatus.className = 'led-status led-off';
+                showNotification('Błąd podczas przełączania LED', 'error');
             });
+        }
+        
+        function showNotification(message, type) {
+            // Prosta notyfikacja - można rozbudować
+            const notification = document.createElement('div');
+            notification.className = 'notification notification-' + type;
+            notification.textContent = message;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 10px 20px;
+                border-radius: 5px;
+                color: white;
+                z-index: 1000;
+                background: ${type === 'error' ? '#dc3545' : type === 'warning' ? '#ffc107' : '#007bff'};
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
         }
         
         // *** ROZSZERZENIE: Funkcje JavaScript dla nowych urządzeń ***
@@ -163,7 +221,10 @@ const char* DASHBOARD_JS = R"rawliteral(
         function toggleRelay(relayNumber) {
             fetch('/api/relay/' + relayNumber + '/toggle', { method: 'POST' })
                 .then(response => response.json())
-                .then(data => updateRelayUI(relayNumber, data.state))
+                .then(data => {
+                    updateRelayUI(relayNumber, data.state);
+                    updateIoTStatus(data.iot_connected);
+                })
                 .catch(error => console.error('Błąd sterowania przekaźnikiem:', error));
         }
         
@@ -188,6 +249,7 @@ const char* DASHBOARD_JS = R"rawliteral(
             .then(response => response.json())
             .then(data => {
                 document.getElementById('servo' + servoNumber + 'Position').textContent = data.position + '°';
+                updateIoTStatus(data.iot_connected);
             })
             .catch(error => console.error('Błąd sterowania servo:', error));
         }
@@ -204,6 +266,7 @@ const char* DASHBOARD_JS = R"rawliteral(
             .then(response => response.json())
             .then(data => {
                 document.getElementById('ledStripValue').textContent = data.brightness + '/255';
+                updateIoTStatus(data.iot_connected);
             });
         }
         
@@ -216,6 +279,7 @@ const char* DASHBOARD_JS = R"rawliteral(
             .then(response => response.json())
             .then(data => {
                 document.getElementById('fanSpeedValue').textContent = data.speed + '/255';
+                updateIoTStatus(data.iot_connected);
             });
         }
         */
@@ -231,6 +295,7 @@ const char* DASHBOARD_JS = R"rawliteral(
                     document.getElementById('moistureLevel').textContent = data.moistureLevel;
                     document.getElementById('motionStatus').textContent = data.motionDetected ? 'WYKRYTY' : 'BRAK';
                     document.getElementById('doorStatus').textContent = data.doorOpen ? 'OTWARTE' : 'ZAMKNIĘTE';
+                    updateIoTStatus(data.iot_connected);
                 })
                 .catch(error => console.error('Błąd odczytu sensorów:', error));
         }
@@ -256,8 +321,30 @@ const char* DASHBOARD_JS = R"rawliteral(
                         document.getElementById('ntpStatus').textContent = data.ntpSynced ? 'Zsynchronizowany' : 'Nie zsynchronizowany';
                         document.getElementById('ntpStatus').className = data.ntpSynced ? 'ntp-synced' : 'ntp-not-synced';
                     }
+                    
+                    // UART Status
+                    if (data.uart) {
+                        document.getElementById('uartConnected').textContent = data.uart.connected ? 'Tak' : 'Nie';
+                        document.getElementById('uartStatus').textContent = data.uart.status;
+                        document.getElementById('uartPending').textContent = data.uart.pending_commands;
+                        document.getElementById('uartLastHB').textContent = data.uart.last_heartbeat + 's ago';
+                        document.getElementById('uartError').textContent = data.uart.last_error || 'Brak';
+                        
+                        // Aktualizuj główny wskaźnik IoT
+                        updateIoTStatus(data.uart.connected);
+                    }
                 })
                 .catch(error => console.error('Błąd pobierania informacji o systemie:', error));
+        }
+        
+        function getUARTStatus() {
+            fetch('/api/uart/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Szczegółowe informacje UART dla debugowania
+                    console.log('UART Status:', data);
+                })
+                .catch(error => console.error('Błąd pobierania statusu UART:', error));
         }
         
         function formatUptime(milliseconds) {
@@ -287,7 +374,8 @@ const char* DASHBOARD_JS = R"rawliteral(
         window.onload = function() {
             checkLEDStatus();
             getSystemInfo();
-            setInterval(getSystemInfo, 30000);
+            setInterval(getSystemInfo, 30000);  // Co 30 sekund
+            setInterval(getUARTStatus, 60000);  // Co minutę szczegółowy status UART
             
             // *** ROZSZERZENIE: Inicjalizacja nowych funkcji ***
             // setInterval(readSensors, 5000);     // Odczyt sensorów co 5 sekund
@@ -343,6 +431,25 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
         .logout-btn:hover {
             background: #c82333;
         }
+        .iot-status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .iot-connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .iot-disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
         .card {
             background: white;
             padding: 30px;
@@ -374,6 +481,11 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
             background: #f8f9fa;
             color: #6c757d;
             border: 1px solid #dee2e6;
+        }
+        .led-loading {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
         }
         .switch-container {
             margin: 20px 0;
@@ -446,6 +558,26 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
             color: #dc3545;
             font-weight: bold;
         }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: white;
+            z-index: 1000;
+            font-weight: bold;
+        }
+        .notification-error {
+            background: #dc3545;
+        }
+        .notification-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        .notification-info {
+            background: #007bff;
+        }
         
         /* *** ROZSZERZENIE: Style CSS dla nowych elementów *** */
         
@@ -507,15 +639,16 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
 <body>
     <div class="container">
         <div class="header">
+            <div id="iotStatus" class="iot-status iot-disconnected">🤖 IoT: Łączenie...</div>
             <button class="logout-btn" onclick="logout()">Wyloguj</button>
             <h1>🚀 ESP32 LAN Dashboard</h1>
-            <p>Inteligentny dom - Panel sterowania</p>
+            <p>Inteligentny dom - Panel sterowania + IoT przez UART</p>
         </div>
         
         <!-- Główne sterowanie LED -->
         <div class="card">
             <div class="device-control">
-                <h2>💡 Sterowanie LED</h2>
+                <h2>💡 Sterowanie LED (przez IoT)</h2>
                 <div id="ledStatus" class="device-status led-off">
                     LED jest WYŁĄCZONA
                 </div>
@@ -527,7 +660,8 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
                     </label>
                 </div>
                 
-                <p>Użyj przełącznika powyżej aby włączyć/wyłączyć LED</p>
+                <p>Użyj przełącznika powyżej aby wysłać komendę przez UART do IoT</p>
+                <small style="color: #666;">Stan LED jest kontrolowany przez IoT ESP32</small>
             </div>
         </div>
         
@@ -564,6 +698,37 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
                 <div class="info-item">
                     <div class="info-label">Synchronizacja NTP</div>
                     <div class="info-value" id="ntpStatus">Ładowanie...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- UART Kommunikacja Status -->
+        <div class="card">
+            <h2>📡 Status komunikacji UART</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">IoT połączony</div>
+                    <div class="info-value" id="uartConnected">Ładowanie...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Status połączenia</div>
+                    <div class="info-value" id="uartStatus">Ładowanie...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Oczekujące komendy</div>
+                    <div class="info-value" id="uartPending">Ładowanie...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Ostatni heartbeat</div>
+                    <div class="info-value" id="uartLastHB">Ładowanie...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Ostatni błąd</div>
+                    <div class="info-value" id="uartError">Ładowanie...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Konfiguracja</div>
+                    <div class="info-value">TX:6, RX:7, 9600 baud</div>
                 </div>
             </div>
         </div>

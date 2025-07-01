@@ -14,6 +14,9 @@ void handleLEDToggle(AsyncWebServerRequest* request);
 // ================= SYSTEM API =================
 void handleSystemInfo(AsyncWebServerRequest* request);
 
+// ================= UART API (NOWE) =================
+void handleUARTStatus(AsyncWebServerRequest* request);
+
 // *** ROZSZERZENIE: Hardware API (odkomentuj według potrzeb) ***
 // ============= PRZEKAŹNIKI API =============
 /*
@@ -50,5 +53,6 @@ void handleScheduleRemove(AsyncWebServerRequest* request);
 String createJSONResponse(const String& data);
 void sendJSONError(AsyncWebServerRequest* request, const String& error);
 void sendJSONSuccess(AsyncWebServerRequest* request, const String& data);
+void sendJSONWithIoTStatus(AsyncWebServerRequest* request, const String& data); // NOWE
 
 #endif

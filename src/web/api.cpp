@@ -4,6 +4,7 @@
 #include "../core/system.h"
 #include "../network/ntp.h"
 #include "../core/logging.h"
+#include "../communication/uart.h"  // NOWE: Komunikacja UART
 
 // ================= DEKLARACJA ZEWNĘTRZNEGO SERWERA =================
 extern AsyncWebServer server;
@@ -20,6 +21,9 @@ void setupAPIRoutes() {
     
     // ================= API - SYSTEM =================
     server.on("/api/system/info", HTTP_GET, handleSystemInfo);
+    
+    // NOWE: API - UART Status
+    server.on("/api/uart/status", HTTP_GET, handleUARTStatus);
     
     // *** ROZSZERZENIE: Dodaj tutaj nowe endpointy API dla różnych urządzeń ***
     
@@ -58,7 +62,7 @@ void setupAPIRoutes() {
 // ================= LED API =================
 
 /**
- * API - Stan LED
+ * API - Stan LED (z cache WebServer)
  */
 void handleLEDStatus(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
@@ -66,12 +70,19 @@ void handleLEDStatus(AsyncWebServerRequest* request) {
         return;
     }
     
-    String json = "{\"state\":" + String(getLEDState() ? "true" : "false") + "}";
+    // Zwróć stan z cache (może być nieaktualny jeśli IoT nie odpowiada)
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"state\":" + String(getLEDState() ? "true" : "false") + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
+    json += "\"source\":\"" + String(iotConnected ? "iot" : "cache") + "\"";
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 
 /**
- * API - Przełączenie LED
+ * API - Przełączenie LED (przez UART)
  */
 void handleLEDToggle(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
@@ -79,10 +90,28 @@ void handleLEDToggle(AsyncWebServerRequest* request) {
         return;
     }
     
-    // Toggle stan LED
-    setLEDState(!getLEDState());
+    // Pobierz aktualny stan i przełącz
+    bool currentState = getLEDState();
+    bool newState = !currentState;
     
-    String json = "{\"state\":" + String(getLEDState() ? "true" : "false") + "}";
+    Serial.printf("[API] LED toggle request: %s -> %s\n", 
+                 currentState ? "ON" : "OFF", newState ? "ON" : "OFF");
+    
+    // Wyślij komendę przez UART
+    setLEDState(newState);
+    
+    // NOWE: Sprawdź status komendy
+    bool iotConnected = isIoTConnected();
+    int pendingCommands = getPendingCommandsCount();
+    
+    String json = "{";
+    json += "\"state\":" + String(newState ? "true" : "false") + ",";
+    json += "\"command_sent\":" + String("true") + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
+    json += "\"pending_commands\":" + String(pendingCommands) + ",";
+    json += "\"status\":\"" + String(iotConnected ? "sent" : "queued") + "\"";
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 
@@ -100,6 +129,13 @@ void handleSystemInfo(AsyncWebServerRequest* request) {
     SystemInfo sysInfo = getSystemInfo();
     TimeInfo timeInfo = getCurrentTime();
     
+    // NOWE: Dodaj informacje o UART
+    bool iotConnected = isIoTConnected();
+    int pendingCommands = getPendingCommandsCount();
+    String connectionStatus = getConnectionStatus();
+    unsigned long lastHeartbeat = getLastHeartbeat();
+    String lastError = getLastError();
+    
     String json = "{";
     json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
     json += "\"uptime\":\"" + String(sysInfo.uptime) + "\",";
@@ -107,7 +143,50 @@ void handleSystemInfo(AsyncWebServerRequest* request) {
     json += "\"rssi\":" + String(sysInfo.wifiRSSI) + ",";
     json += "\"currentTime\":\"" + timeInfo.localTime + "\",";
     json += "\"timezone\":\"" + timeInfo.timezone + "\",";
-    json += "\"ntpSynced\":" + String(timeInfo.synced ? "true" : "false");
+    json += "\"ntpSynced\":" + String(timeInfo.synced ? "true" : "false") + ",";
+    
+    // UART status
+    json += "\"uart\":{";
+    json += "\"connected\":" + String(iotConnected ? "true" : "false") + ",";
+    json += "\"status\":\"" + connectionStatus + "\",";
+    json += "\"pending_commands\":" + String(pendingCommands) + ",";
+    json += "\"last_heartbeat\":" + String((millis() - lastHeartbeat) / 1000) + ",";
+    json += "\"last_error\":\"" + lastError + "\"";
+    json += "}";
+    
+    json += "}";
+    
+    request->send(200, "application/json", json);
+}
+
+// ================= UART API =================
+
+/**
+ * NOWE: API - Status komunikacji UART
+ */
+void handleUARTStatus(AsyncWebServerRequest* request) {
+    if (!checkAuthentication(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    
+    bool iotConnected = isIoTConnected();
+    int pendingCommands = getPendingCommandsCount();
+    String connectionStatus = getConnectionStatus();
+    unsigned long lastHeartbeat = getLastHeartbeat();
+    String lastError = getLastError();
+    
+    String json = "{";
+    json += "\"connected\":" + String(iotConnected ? "true" : "false") + ",";
+    json += "\"status\":\"" + connectionStatus + "\",";
+    json += "\"pending_commands\":" + String(pendingCommands) + ",";
+    json += "\"last_heartbeat_ago\":" + String((millis() - lastHeartbeat) / 1000) + ",";
+    json += "\"last_error\":\"" + lastError + "\",";
+    json += "\"config\":{";
+    json += "\"tx_pin\":" + String(UART_TX_PIN) + ",";
+    json += "\"rx_pin\":" + String(UART_RX_PIN) + ",";
+    json += "\"baud_rate\":" + String(UART_BAUD_RATE);
+    json += "}";
     json += "}";
     
     request->send(200, "application/json", json);
@@ -123,8 +202,15 @@ void handleRelay1Toggle(AsyncWebServerRequest* request) {
         return;
     }
     
-    setRelayState(1, !getRelayState(1));
-    String json = "{\"state\":" + String(getRelayState(1) ? "true" : "false") + "}";
+    bool currentState = getRelayState(1);
+    setRelayState(1, !currentState);
+    
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"state\":" + String(getRelayState(1) ? "true" : "false") + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 
@@ -134,8 +220,15 @@ void handleRelay2Toggle(AsyncWebServerRequest* request) {
         return;
     }
     
-    setRelayState(2, !getRelayState(2));
-    String json = "{\"state\":" + String(getRelayState(2) ? "true" : "false") + "}";
+    bool currentState = getRelayState(2);
+    setRelayState(2, !currentState);
+    
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"state\":" + String(getRelayState(2) ? "true" : "false") + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 
@@ -145,8 +238,15 @@ void handleRelay3Toggle(AsyncWebServerRequest* request) {
         return;
     }
     
-    setRelayState(3, !getRelayState(3));
-    String json = "{\"state\":" + String(getRelayState(3) ? "true" : "false") + "}";
+    bool currentState = getRelayState(3);
+    setRelayState(3, !currentState);
+    
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"state\":" + String(getRelayState(3) ? "true" : "false") + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 */
@@ -164,7 +264,12 @@ void handleServo1Set(AsyncWebServerRequest* request) {
         setServoPosition(1, position);
     }
     
-    String json = "{\"position\":" + String(getServoPosition(1)) + "}";
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"position\":" + String(getServoPosition(1)) + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 
@@ -179,7 +284,12 @@ void handleServo2Set(AsyncWebServerRequest* request) {
         setServoPosition(2, position);
     }
     
-    String json = "{\"position\":" + String(getServoPosition(2)) + "}";
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"position\":" + String(getServoPosition(2)) + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 */
@@ -197,7 +307,12 @@ void handleLEDStripSet(AsyncWebServerRequest* request) {
         setLEDStripBrightness(brightness);
     }
     
-    String json = "{\"brightness\":" + String(getLEDStripBrightness()) + "}";
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"brightness\":" + String(getLEDStripBrightness()) + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 
@@ -212,7 +327,12 @@ void handleFanSet(AsyncWebServerRequest* request) {
         setFanSpeed(speed);
     }
     
-    String json = "{\"speed\":" + String(getFanSpeed()) + "}";
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"speed\":" + String(getFanSpeed()) + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
+    
     request->send(200, "application/json", json);
 }
 */
@@ -225,14 +345,19 @@ void handleSensorsRead(AsyncWebServerRequest* request) {
         return;
     }
     
-    readAllSensors();
+    // Wyślij żądanie odczytu sensorów przez UART
+    requestSensorData();
     
+    // Zwróć aktualne dane z cache
+    bool iotConnected = isIoTConnected();
     String json = "{";
-    json += "\"temperature\":" + String(temperature, 1) + ",";
-    json += "\"lightLevel\":" + String(lightLevel) + ",";
-    json += "\"moistureLevel\":" + String(moistureLevel) + ",";
-    json += "\"motionDetected\":" + String(motionDetected ? "true" : "false") + ",";
-    json += "\"doorOpen\":" + String(doorOpen ? "true" : "false");
+    json += "\"temperature\":" + String(getTemperature(), 1) + ",";
+    json += "\"lightLevel\":" + String(getLightLevel()) + ",";
+    json += "\"moistureLevel\":" + String(getMoistureLevel()) + ",";
+    json += "\"motionDetected\":" + String(getMotionDetected() ? "true" : "false") + ",";
+    json += "\"doorOpen\":" + String(getDoorOpen() ? "true" : "false") + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
+    json += "\"data_source\":\"" + String(iotConnected ? "live" : "cache") + "\"";
     json += "}";
     
     request->send(200, "application/json", json);
@@ -313,5 +438,18 @@ void sendJSONError(AsyncWebServerRequest* request, const String& error) {
  */
 void sendJSONSuccess(AsyncWebServerRequest* request, const String& data) {
     String json = "{\"success\":true,\"data\":" + data + "}";
+    request->send(200, "application/json", json);
+}
+
+/**
+ * NOWE: Wyślij odpowiedź z informacją o stanie IoT
+ */
+void sendJSONWithIoTStatus(AsyncWebServerRequest* request, const String& data) {
+    bool iotConnected = isIoTConnected();
+    String json = "{";
+    json += "\"success\":true,";
+    json += "\"data\":" + data + ",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
+    json += "}";
     request->send(200, "application/json", json);
 }
