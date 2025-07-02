@@ -45,6 +45,13 @@ void checkCommandTimeouts();
 uint16_t calculateCRC16(const String& data);
 bool validateCRC(const String& jsonStr, const String& expectedCrc);
 
+// ================= LED CONTROL FUNCTIONS (Moved from actuators) =================
+void setLEDState(bool state);
+bool getLEDState();
+void requestStateSync();
+void processSyncResponse(const String& result);
+void updateStateFromResponse(const String& action, const String& result);
+
 // ================= HELPER FUNCTIONS =================
 String createCommandJSON(const String& action, const String& params);
 bool parseResponseJSON(const String& jsonStr, UARTResponse& response);
@@ -64,5 +71,6 @@ extern unsigned long lastHeartbeat;
 extern bool iotConnected;
 extern String lastError;
 extern String uartBuffer;
+extern bool ledState; // LED state cache (moved from actuators)
 
 #endif

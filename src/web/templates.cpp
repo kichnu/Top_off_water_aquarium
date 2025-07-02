@@ -103,10 +103,9 @@ const char* LOGIN_PAGE_HTML = R"rawliteral(
         </form>
         <div class="security-info">
             <strong>🛡️ Zabezpieczenia:</strong><br>
-            • IP Whitelist + Rate limiting<br>
-            • Sesje z automatycznym timeout<br>
-            • Blokada po przekroczeniu limitów<br>
-            • 📡 UART komunikacja z IoT
+            • Rate limiting + Session management<br>
+            • 📡 UART komunikacja z IoT<br>
+            • Automatyczne timeout sesji
         </div>
     </div>
 </body>
@@ -153,11 +152,68 @@ const char* DASHBOARD_JS = R"rawliteral(
             }
         }
         
+        function updateStatusInfo() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update WiFi info
+                    const wifiInfo = document.getElementById('wifiInfo');
+                    if (wifiInfo) {
+                        if (data.wifi.connected) {
+                            wifiInfo.textContent = 'WiFi: ' + data.wifi.ip;
+                        } else {
+                            wifiInfo.textContent = 'WiFi: Rozłączony';
+                        }
+                    }
+                    
+                    // Update NTP info
+                    const ntpInfo = document.getElementById('ntpInfo');
+                    if (ntpInfo) {
+                        if (data.ntp.synced) {
+                            ntpInfo.textContent = 'Czas: ' + data.ntp.time;
+                        } else {
+                            ntpInfo.textContent = 'Czas: Brak sync';
+                        }
+                    }
+                    
+                    // Update heartbeat info
+                    const heartbeatInfo = document.getElementById('heartbeatInfo');
+                    if (heartbeatInfo) {
+                        if (data.iot.connected) {
+                            heartbeatInfo.textContent = 'Heartbeat: ' + formatHeartbeat(data.iot.heartbeat_ago);
+                        } else {
+                            heartbeatInfo.textContent = 'Heartbeat: Brak';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Błąd pobierania statusu:', error);
+                    // Set fallback values
+                    const wifiInfo = document.getElementById('wifiInfo');
+                    const ntpInfo = document.getElementById('ntpInfo');
+                    const heartbeatInfo = document.getElementById('heartbeatInfo');
+                    
+                    if (wifiInfo) wifiInfo.textContent = 'WiFi: Error';
+                    if (ntpInfo) ntpInfo.textContent = 'Czas: Error';
+                    if (heartbeatInfo) heartbeatInfo.textContent = 'Heartbeat: Error';
+                });
+        }
+        
+        function formatHeartbeat(secondsAgo) {
+            if (secondsAgo < 60) {
+                return secondsAgo + 's ago';
+            } else if (secondsAgo < 3600) {
+                return Math.floor(secondsAgo / 60) + 'm ago';
+            } else {
+                return Math.floor(secondsAgo / 3600) + 'h ago';
+            }
+        }
+        
         function toggleLED() {
             const ledSwitch = document.getElementById('ledSwitch');
             const newState = ledSwitch.checked;
             
-            // Pokaż loading
+            // Show loading
             const ledStatus = document.getElementById('ledStatus');
             const originalText = ledStatus.textContent;
             ledStatus.textContent = 'Wysyłanie komendy...';
@@ -175,7 +231,6 @@ const char* DASHBOARD_JS = R"rawliteral(
                 updateLEDUI(data.state);
                 updateIoTStatus(data.iot_connected);
                 
-                // Pokaż status komendy
                 if (data.status === 'queued') {
                     showNotification('Komenda w kolejce - IoT rozłączony', 'warning');
                 } else if (data.pending_commands > 0) {
@@ -192,7 +247,6 @@ const char* DASHBOARD_JS = R"rawliteral(
         }
         
         function showNotification(message, type) {
-            // Prosta notyfikacja - można rozbudować
             const notification = document.createElement('div');
             notification.className = 'notification notification-' + type;
             notification.textContent = message;
@@ -214,156 +268,6 @@ const char* DASHBOARD_JS = R"rawliteral(
             }, 3000);
         }
         
-        // *** ROZSZERZENIE: Funkcje JavaScript dla nowych urządzeń ***
-        
-        // ============= STEROWANIE PRZEKAŹNIKAMI =============
-        /*
-        function toggleRelay(relayNumber) {
-            fetch('/api/relay/' + relayNumber + '/toggle', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    updateRelayUI(relayNumber, data.state);
-                    updateIoTStatus(data.iot_connected);
-                })
-                .catch(error => console.error('Błąd sterowania przekaźnikiem:', error));
-        }
-        
-        function updateRelayUI(relayNumber, state) {
-            const relaySwitch = document.getElementById('relay' + relayNumber + 'Switch');
-            const relayStatus = document.getElementById('relay' + relayNumber + 'Status');
-            
-            relaySwitch.checked = state;
-            relayStatus.textContent = 'Przekaźnik ' + relayNumber + ': ' + (state ? 'WŁĄCZONY' : 'WYŁĄCZONY');
-            relayStatus.className = state ? 'device-status device-on' : 'device-status device-off';
-        }
-        */
-        
-        // ============= STEROWANIE SERWOMECHANIZMAMI =============
-        /*
-        function setServoPosition(servoNumber, position) {
-            fetch('/api/servo/' + servoNumber + '/set', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ position: parseInt(position) })
-            })
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('servo' + servoNumber + 'Position').textContent = data.position + '°';
-                updateIoTStatus(data.iot_connected);
-            })
-            .catch(error => console.error('Błąd sterowania servo:', error));
-        }
-        */
-        
-        // ============= STEROWANIE PWM/DIMMER =============
-        /*
-        function setLedStripBrightness(brightness) {
-            fetch('/api/ledstrip/set', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ brightness: parseInt(brightness) })
-            })
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('ledStripValue').textContent = data.brightness + '/255';
-                updateIoTStatus(data.iot_connected);
-            });
-        }
-        
-        function setFanSpeed(speed) {
-            fetch('/api/fan/set', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ speed: parseInt(speed) })
-            })
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('fanSpeedValue').textContent = data.speed + '/255';
-                updateIoTStatus(data.iot_connected);
-            });
-        }
-        */
-        
-        // ============= ODCZYT SENSORÓW =============
-        /*
-        function readSensors() {
-            fetch('/api/sensors/read')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('temperature').textContent = data.temperature + '°C';
-                    document.getElementById('lightLevel').textContent = data.lightLevel;
-                    document.getElementById('moistureLevel').textContent = data.moistureLevel;
-                    document.getElementById('motionStatus').textContent = data.motionDetected ? 'WYKRYTY' : 'BRAK';
-                    document.getElementById('doorStatus').textContent = data.doorOpen ? 'OTWARTE' : 'ZAMKNIĘTE';
-                    updateIoTStatus(data.iot_connected);
-                })
-                .catch(error => console.error('Błąd odczytu sensorów:', error));
-        }
-        */
-        
-        function getSystemInfo() {
-            fetch('/api/system/info')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('ipAddress').textContent = data.ip;
-                    document.getElementById('uptime').textContent = formatUptime(parseInt(data.uptime));
-                    document.getElementById('freeHeap').textContent = data.freeHeap + ' bytes';
-                    document.getElementById('rssi').textContent = data.rssi + ' dBm';
-                    
-                    // Pokaż informacje o czasie jeśli dostępne
-                    if (data.currentTime) {
-                        document.getElementById('currentTime').textContent = data.currentTime;
-                    }
-                    if (data.timezone) {
-                        document.getElementById('timezone').textContent = data.timezone;
-                    }
-                    if (data.ntpSynced !== undefined) {
-                        document.getElementById('ntpStatus').textContent = data.ntpSynced ? 'Zsynchronizowany' : 'Nie zsynchronizowany';
-                        document.getElementById('ntpStatus').className = data.ntpSynced ? 'ntp-synced' : 'ntp-not-synced';
-                    }
-                    
-                    // UART Status
-                    if (data.uart) {
-                        document.getElementById('uartConnected').textContent = data.uart.connected ? 'Tak' : 'Nie';
-                        document.getElementById('uartStatus').textContent = data.uart.status;
-                        document.getElementById('uartPending').textContent = data.uart.pending_commands;
-                        document.getElementById('uartLastHB').textContent = data.uart.last_heartbeat + 's ago';
-                        document.getElementById('uartError').textContent = data.uart.last_error || 'Brak';
-                        
-                        // Aktualizuj główny wskaźnik IoT
-                        updateIoTStatus(data.uart.connected);
-                    }
-                })
-                .catch(error => console.error('Błąd pobierania informacji o systemie:', error));
-        }
-        
-        function getUARTStatus() {
-            fetch('/api/uart/status')
-                .then(response => response.json())
-                .then(data => {
-                    // Szczegółowe informacje UART dla debugowania
-                    console.log('UART Status:', data);
-                })
-                .catch(error => console.error('Błąd pobierania statusu UART:', error));
-        }
-        
-        function formatUptime(milliseconds) {
-            const seconds = Math.floor(milliseconds / 1000);
-            const minutes = Math.floor(seconds / 60);
-            const hours = Math.floor(minutes / 60);
-            const days = Math.floor(hours / 24);
-            
-            if (days > 0) {
-                return days + 'd ' + (hours % 24) + 'h ' + (minutes % 60) + 'm';
-            } else if (hours > 0) {
-                return hours + 'h ' + (minutes % 60) + 'm ' + (seconds % 60) + 's';
-            } else if (minutes > 0) {
-                return minutes + 'm ' + (seconds % 60) + 's';
-            } else {
-                return seconds + 's';
-            }
-        }
-        
         function logout() {
             fetch('/logout', { method: 'POST' })
                 .then(() => {
@@ -373,17 +277,13 @@ const char* DASHBOARD_JS = R"rawliteral(
         
         window.onload = function() {
             checkLEDStatus();
-            getSystemInfo();
-            setInterval(getSystemInfo, 30000);  // Co 30 sekund
-            setInterval(getUARTStatus, 60000);  // Co minutę szczegółowy status UART
-            
-            // *** ROZSZERZENIE: Inicjalizacja nowych funkcji ***
-            // setInterval(readSensors, 5000);     // Odczyt sensorów co 5 sekund
-            // setInterval(checkSchedules, 60000); // Sprawdzanie harmonogramów co minutę
+            updateStatusInfo();
+            setInterval(checkLEDStatus, 30000);  // Check LED status every 30 seconds
+            setInterval(updateStatusInfo, 10000); // Update status every 10 seconds for fresh heartbeat
         };
 )rawliteral";
 
-// ================= STRONA DASHBOARD (część 1) =================
+// ================= STRONA DASHBOARD =================
 const char* DASHBOARD_PAGE_HTML = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -400,7 +300,7 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
             min-height: 100vh;
         }
         .container {
-            max-width: 1200px;
+            max-width: 800px;
             margin: 0 auto;
         }
         .header {
@@ -457,11 +357,6 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
             margin-bottom: 20px;
         }
-        .card-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-        }
         .device-control {
             text-align: center;
         }
@@ -472,12 +367,12 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
             border-radius: 5px;
             font-weight: bold;
         }
-        .led-on, .device-on {
+        .led-on {
             background: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
-        .led-off, .device-off {
+        .led-off {
             background: #f8f9fa;
             color: #6c757d;
             border: 1px solid #dee2e6;
@@ -529,34 +424,24 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
         input:checked + .slider:before {
             transform: translateX(40px);
         }
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-        .info-item {
+        .status-bar {
             background: #f8f9fa;
-            padding: 15px;
+            padding: 10px 20px;
             border-radius: 5px;
-            border-left: 4px solid #667eea;
-        }
-        .info-label {
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        .info-value {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
             color: #666;
-            font-family: monospace;
+            flex-wrap: wrap;
+            gap: 10px;
         }
-        .ntp-synced {
-            color: #28a745;
-            font-weight: bold;
-        }
-        .ntp-not-synced {
-            color: #dc3545;
-            font-weight: bold;
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            min-width: 120px;
         }
         .notification {
             position: fixed;
@@ -578,62 +463,6 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
         .notification-info {
             background: #007bff;
         }
-        
-        /* *** ROZSZERZENIE: Style CSS dla nowych elementów *** */
-        
-        .control-button {
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin: 5px;
-        }
-        .control-button:hover {
-            background: #0056b3;
-        }
-        .control-button.danger {
-            background: #dc3545;
-        }
-        .control-button.danger:hover {
-            background: #c82333;
-        }
-        .slider-control {
-            width: 100%;
-            margin: 20px 0;
-        }
-        .slider-control input[type="range"] {
-            width: 100%;
-            height: 25px;
-        }
-        .slider-control .value-display {
-            font-weight: bold;
-            color: #333;
-            margin-left: 10px;
-        }
-        .sensor-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-        }
-        .sensor-item {
-            background: #e9ecef;
-            padding: 10px;
-            border-radius: 5px;
-            text-align: center;
-        }
-        .sensor-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #495057;
-        }
-        .sensor-label {
-            font-size: 12px;
-            color: #6c757d;
-        }
     </style>
 </head>
 <body>
@@ -641,14 +470,30 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
         <div class="header">
             <div id="iotStatus" class="iot-status iot-disconnected">🤖 IoT: Łączenie...</div>
             <button class="logout-btn" onclick="logout()">Wyloguj</button>
-            <h1>🚀 ESP32 LAN Dashboard</h1>
-            <p>Inteligentny dom - Panel sterowania + IoT przez UART</p>
+            <h1>🚀 ESP32 Dashboard</h1>
+            <p>Sterowanie LED przez IoT UART</p>
         </div>
         
-        <!-- Główne sterowanie LED -->
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <span>📶</span>
+                <span id="wifiInfo">WiFi: Łączenie...</span>
+            </div>
+            <div class="status-item">
+                <span>🕒</span>
+                <span id="ntpInfo">Czas: Sync...</span>
+            </div>
+            <div class="status-item">
+                <span>💓</span>
+                <span id="heartbeatInfo">Heartbeat: ---</span>
+            </div>
+        </div>
+        
+        <!-- LED Control -->
         <div class="card">
             <div class="device-control">
-                <h2>💡 Sterowanie LED (przez IoT)</h2>
+                <h2>💡 Sterowanie LED</h2>
                 <div id="ledStatus" class="device-status led-off">
                     LED jest WYŁĄCZONA
                 </div>
@@ -660,76 +505,8 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
                     </label>
                 </div>
                 
-                <p>Użyj przełącznika powyżej aby wysłać komendę przez UART do IoT</p>
-                <small style="color: #666;">Stan LED jest kontrolowany przez IoT ESP32</small>
-            </div>
-        </div>
-        
-        <!-- *** ROZSZERZENIE: Karty dla nowych urządzeń *** -->
-        
-        <!-- Informacje o systemie -->
-        <div class="card">
-            <h2>📊 Informacje o systemie</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">Adres IP</div>
-                    <div class="info-value" id="ipAddress">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Czas działania</div>
-                    <div class="info-value" id="uptime">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Wolna pamięć</div>
-                    <div class="info-value" id="freeHeap">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Siła sygnału WiFi</div>
-                    <div class="info-value" id="rssi">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Aktualny czas</div>
-                    <div class="info-value" id="currentTime">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Strefa czasowa</div>
-                    <div class="info-value" id="timezone">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Synchronizacja NTP</div>
-                    <div class="info-value" id="ntpStatus">Ładowanie...</div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- UART Kommunikacja Status -->
-        <div class="card">
-            <h2>📡 Status komunikacji UART</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">IoT połączony</div>
-                    <div class="info-value" id="uartConnected">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Status połączenia</div>
-                    <div class="info-value" id="uartStatus">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Oczekujące komendy</div>
-                    <div class="info-value" id="uartPending">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Ostatni heartbeat</div>
-                    <div class="info-value" id="uartLastHB">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Ostatni błąd</div>
-                    <div class="info-value" id="uartError">Ładowanie...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Konfiguracja</div>
-                    <div class="info-value">TX:6, RX:7, 9600 baud</div>
-                </div>
+                <p>Komenda jest wysyłana przez UART do IoT ESP32</p>
+                <small style="color: #666;">Stan LED jest kontrolowany przez IoT urządzenie</small>
             </div>
         </div>
     </div>

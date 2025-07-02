@@ -1,5 +1,4 @@
 #include "uart.h"
-#include "../core/logging.h"
 
 // ================= ZMIENNE GLOBALNE =================
 UARTCommand pendingCommands[MAX_PENDING_COMMANDS];
@@ -8,6 +7,7 @@ unsigned long lastHeartbeat = 0;
 bool iotConnected = false;
 String lastError = "";
 String uartBuffer = "";
+bool ledState = false; // LED state cache (moved from actuators)
 
 // ================= CRC16 LOOKUP TABLE =================
 const uint16_t crc16_table[256] = {
@@ -52,13 +52,14 @@ const uint16_t crc16_table[256] = {
  */
 void initializeUART() {
     Serial1.begin(UART_BAUD_RATE, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
-    Serial1.setTimeout(100); // Timeout dla readString
+    Serial1.setTimeout(100);
     
     pendingCommandsCount = 0;
     lastHeartbeat = 0;
     iotConnected = false;
     lastError = "";
     uartBuffer = "";
+    ledState = false; // Initialize LED state cache
     
     // Wyczyść pending commands
     for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
@@ -66,36 +67,14 @@ void initializeUART() {
         pendingCommands[i].retryCount = 0;
     }
     
-    Serial.println("\n============ UART ENHANCED DEBUG ============");
-    Serial.printf("[UART] Konfiguracja UART:\n");
-    Serial.printf("   RX Pin: %d (GPIO%d)\n", UART_RX_PIN, UART_RX_PIN);
-    Serial.printf("   TX Pin: %d (GPIO%d)\n", UART_TX_PIN, UART_TX_PIN);
-    Serial.printf("   Baud: %d\n", UART_BAUD_RATE);
-    Serial.printf("   Format: 8N1\n");
-    Serial.println("============================================");
+    // Improved logging with labels and empty lines
+    Serial.println("[WEBSERVER-UART-INIT] Inicjalizacja komunikacji UART");
+    Serial.printf("[WEBSERVER-UART-CONFIG] RX Pin: %d, TX Pin: %d, Baud: %d\n", UART_RX_PIN, UART_TX_PIN, UART_BAUD_RATE);
+    Serial.println();
     
-    LOG_INFO_MSG("UART", "UART zainicjalizowany");
-    
-    // TEST: Seria testowych wiadomości
-    delay(2000);
-    Serial.println("[UART TEST] Wysyłam serię testowych wiadomości...");
-    for (int i = 0; i < 5; i++) {
-        String testMsg = "TEST_ESP32_MSG_" + String(i) + "_BAUD_" + String(UART_BAUD_RATE);
-        Serial1.println(testMsg);
-        Serial1.flush();
-        Serial.println("[UART TEST] Sent: " + testMsg);
-        delay(500);
-        
-        // Sprawdź czy coś przyszło
-        if (Serial1.available()) {
-            Serial.printf("[UART TEST] Response available: %d bytes\n", Serial1.available());
-            while (Serial1.available()) {
-                char c = Serial1.read();
-                Serial.printf("[UART TEST] Received: '%c' (%d)\n", c, (int)c);
-            }
-        }
-    }
-    Serial.println("[UART TEST] Test zakończony\n");
+    // LED state initialization
+    Serial.println("[WEBSERVER-LED-INIT] Cache stanu LED zainicjalizowany: OFF");
+    Serial.println();
 }
 
 /**
@@ -116,12 +95,11 @@ uint16_t calculateCRC16(const String& data) {
  * Walidacja CRC
  */
 bool validateCRC(const String& jsonStr, const String& expectedCrc) {
-    // Znajdź pozycję CRC w JSON i usuń ją do kalkulacji
     int crcPos = jsonStr.indexOf("\"crc\":");
     if (crcPos == -1) return false;
     
     String dataForCrc = jsonStr.substring(0, crcPos);
-    dataForCrc += "}"; // Zamknij JSON
+    dataForCrc += "}";
     
     uint16_t calculatedCrc = calculateCRC16(dataForCrc);
     String calculatedCrcStr = String(calculatedCrc, HEX);
@@ -134,7 +112,7 @@ bool validateCRC(const String& jsonStr, const String& expectedCrc) {
  * Generuj ID komendy
  */
 uint32_t generateCommandId() {
-    return millis(); // Używamy timestamp jako ID
+    return millis();
 }
 
 /**
@@ -148,28 +126,23 @@ String createCommandJSON(const String& action, const String& params) {
     doc["type"] = "command";
     doc["action"] = action;
     
-    // Parsuj params jako JSON jeśli to możliwe
     if (params.length() > 0) {
         JsonDocument paramsDoc;
         DeserializationError error = deserializeJson(paramsDoc, params);
         if (error) {
-            // Jeśli nie JSON, traktuj jako string
             doc["params"] = params;
         } else {
             doc["params"] = paramsDoc;
         }
     }
     
-    // Serializuj bez CRC
     String jsonWithoutCrc;
     serializeJson(doc, jsonWithoutCrc);
     
-    // Oblicz CRC
     uint16_t crc = calculateCRC16(jsonWithoutCrc);
     String crcStr = String(crc, HEX);
     crcStr.toUpperCase();
     
-    // Dodaj CRC
     doc["crc"] = crcStr;
     
     String finalJson;
@@ -190,7 +163,6 @@ bool parseResponseJSON(const String& jsonStr, UARTResponse& response) {
         return false;
     }
     
-    // Sprawdź wymagane pola
     if (!doc["id"].is<uint32_t>() || !doc["type"].is<String>() || !doc["crc"].is<String>()) {
         lastError = "Missing required fields in response";
         return false;
@@ -201,13 +173,11 @@ bool parseResponseJSON(const String& jsonStr, UARTResponse& response) {
     response.status = doc["status"].as<String>();
     response.crc = doc["crc"].as<String>();
     
-    // Walidacja CRC
     if (!validateCRC(jsonStr, response.crc)) {
         lastError = "CRC validation failed";
         return false;
     }
     
-    // Serializuj result i sensors jako stringi
     if (doc["result"].is<JsonObject>() || doc["result"].is<JsonArray>()) {
         serializeJson(doc["result"], response.result);
     }
@@ -225,6 +195,8 @@ bool parseResponseJSON(const String& jsonStr, UARTResponse& response) {
 bool sendCommand(const String& action, const String& params) {
     if (pendingCommandsCount >= MAX_PENDING_COMMANDS) {
         lastError = "Command queue full";
+        Serial.println("[WEBSERVER-UART-ERROR] Kolejka komend pełna");
+        Serial.println();
         return false;
     }
     
@@ -246,24 +218,13 @@ bool sendCommand(const String& action, const String& params) {
         }
     }
     
-    // ENHANCED DEBUG: Sprawdź czy pin TX faktycznie wysyła
-    Serial.printf("[UART DEBUG] About to send %d bytes on TX pin %d\n", jsonCommand.length(), UART_TX_PIN);
-    Serial.printf("[UART DEBUG] First 50 chars: %s\n", jsonCommand.substring(0, 50).c_str());
-    
-    // Wyślij przez UART
+    // Wyślij przez UART z logowaniem
     Serial1.println(jsonCommand);
-    Serial1.flush();  // Wymuś wysłanie
+    Serial1.flush();
     
-    // Log na Serial Monitor
-    Serial.println("[UART TX] " + jsonCommand);
-    
-    // ENHANCED DEBUG: Sprawdź czy coś jest w buforze RX
-    delay(100);  // Daj czas na odpowiedź
-    if (Serial1.available()) {
-        Serial.printf("[UART DEBUG] %d bytes available after send\n", Serial1.available());
-    } else {
-        Serial.println("[UART DEBUG] No response in RX buffer");
-    }
+    Serial.println("[WEBSERVER-UART-TX] Wysłano JSON do IoT: " + action);
+    Serial.println(jsonCommand);
+    Serial.println();
     
     return true;
 }
@@ -275,9 +236,11 @@ bool sendHeartbeat() {
     String heartbeatJson = createCommandJSON("ping", "{}");
     Serial1.println(heartbeatJson);
     
-    Serial.println("[UART TX PING] " + heartbeatJson);
-    lastHeartbeat = millis();
+    Serial.println("[WEBSERVER-UART-HEARTBEAT] Wysłano ping do IoT");
+    Serial.println(heartbeatJson);
+    Serial.println();
     
+    lastHeartbeat = millis();
     return true;
 }
 
@@ -285,41 +248,25 @@ bool sendHeartbeat() {
  * Przetwarzaj dane UART
  */
 void processUARTData() {
-    // Sprawdź timeouty komend
     checkCommandTimeouts();
     
-    // Heartbeat co minutę
     if (millis() - lastHeartbeat > HEARTBEAT_INTERVAL) {
         sendHeartbeat();
     }
     
-    // Debug: sprawdź czy są jakieś dane do odczytu
-    static unsigned long lastCheck = 0;
-    if (millis() - lastCheck > 5000) { // Co 5 sekund
-        lastCheck = millis();
-        if (Serial1.available()) {
-            Serial.printf("[UART DEBUG] %d bytes available\n", Serial1.available());
-        }
-    }
-    
-    // Czytaj dane z UART
     while (Serial1.available()) {
         char c = Serial1.read();
         
-        // Debug każdy znak
-        Serial.printf("[UART DEBUG] Received: '%c' (%d)\n", c, (int)c);
-        
         if (c == '\n' || c == '\r') {
             if (uartBuffer.length() > 0) {
-                // Mamy kompletną linię - przetwórz
-                Serial.println("[UART RX] " + uartBuffer);
+                // Log received data
+                Serial.println("[IOT-UART-RX] Otrzymano odpowiedź z IoT");
+                Serial.println(uartBuffer);
+                Serial.println();
                 
-                // NAPRAWA: Sprawdź czy to JSON przed parsowaniem
                 if (uartBuffer.startsWith("{") && uartBuffer.endsWith("}")) {
-                    // To prawdopodobnie JSON - spróbuj sparsować
                     UARTResponse response;
                     if (parseResponseJSON(uartBuffer, response)) {
-                        // Znajdź odpowiednie pending command
                         bool commandFound = false;
                         for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
                             if (pendingCommands[i].pending && pendingCommands[i].id == response.id) {
@@ -329,34 +276,33 @@ void processUARTData() {
                                 
                                 if (response.status == "ok") {
                                     iotConnected = true;
-                                    Serial.printf("[UART] Command %u completed successfully\n", response.id);
+                                    Serial.println("[IOT-RESPONSE-SUCCESS] Komenda wykonana pomyślnie: " + pendingCommands[i].action);
+                                    Serial.println();
+                                    
+                                    // Update state cache from response
+                                    updateStateFromResponse(pendingCommands[i].action, response.result);
                                 } else {
-                                    Serial.printf("[UART] Command %u failed: %s\n", response.id, response.status.c_str());
+                                    Serial.println("[IOT-RESPONSE-ERROR] Komenda nieudana: " + pendingCommands[i].action + " - " + response.status);
+                                    Serial.println();
                                 }
                                 break;
                             }
                         }
                         
-                        // Sprawdź czy to pong (może nie mieć matching command)
                         if (response.type == "pong") {
                             iotConnected = true;
-                            Serial.println("[UART] Heartbeat pong received");
-                        }
-                        
-                        if (!commandFound && response.type != "pong") {
-                            Serial.printf("[UART] Received response for unknown command ID: %u\n", response.id);
+                            Serial.println("[IOT-HEARTBEAT] Otrzymano pong z IoT - połączenie aktywne");
+                            Serial.println();
                         }
                     } else {
-                        Serial.println("[UART] Failed to parse JSON response: " + lastError);
+                        Serial.println("[IOT-PARSE-ERROR] Błąd parsowania JSON: " + lastError);
+                        Serial.println();
                     }
                 } else {
-                    // NAPRAWA: To nie JSON - prawdopodobnie keepalive lub inne
-                    Serial.println("[UART] Non-JSON message (keepalive?): " + uartBuffer);
-                    
-                    // Sprawdź czy to keepalive od IoT
                     if (uartBuffer.indexOf("KEEPALIVE") != -1) {
-                        iotConnected = true;  // Jeśli dostajemy keepalive, IoT działa
-                        Serial.println("[UART] Keepalive received - IoT is alive");
+                        iotConnected = true;
+                        Serial.println("[IOT-KEEPALIVE] Otrzymano keepalive z IoT - połączenie aktywne");
+                        Serial.println();
                     }
                 }
                 
@@ -365,9 +311,9 @@ void processUARTData() {
         } else {
             uartBuffer += c;
             
-            // Zabezpieczenie przed przepełnieniem bufora
             if (uartBuffer.length() > UART_BUFFER_SIZE) {
-                Serial.println("[UART DEBUG] Buffer overflow! Clearing...");
+                Serial.println("[WEBSERVER-UART-ERROR] Przepełnienie bufora UART");
+                Serial.println();
                 uartBuffer = "";
                 lastError = "Buffer overflow";
             }
@@ -387,22 +333,19 @@ void checkCommandTimeouts() {
                 pendingCommands[i].retryCount++;
                 
                 if (pendingCommands[i].retryCount >= MAX_RETRIES) {
-                    // Command failed - usuń z kolejki
-                    Serial.printf("[UART] Command %u timeout after %d retries\n", 
-                                 pendingCommands[i].id, MAX_RETRIES);
+                    Serial.println("[WEBSERVER-UART-TIMEOUT] Komenda przekroczyła limit prób: " + pendingCommands[i].action);
+                    Serial.println();
+                    
                     pendingCommands[i].pending = false;
                     pendingCommandsCount--;
                     lastError = "Command timeout";
                     iotConnected = false;
                 } else {
-                    // Retry command
-                    Serial.printf("[UART] Retrying command %u (attempt %d)\n", 
-                                 pendingCommands[i].id, pendingCommands[i].retryCount);
+                    Serial.println("[WEBSERVER-UART-RETRY] Ponowna próba komendy: " + pendingCommands[i].action + " (próba " + String(pendingCommands[i].retryCount) + ")");
+                    Serial.println();
                     
                     String retryJson = createCommandJSON(pendingCommands[i].action, pendingCommands[i].params);
                     Serial1.println(retryJson);
-                    Serial.println("[UART TX RETRY] " + retryJson);
-                    
                     pendingCommands[i].timestamp = now;
                 }
             }
@@ -410,14 +353,88 @@ void checkCommandTimeouts() {
     }
 }
 
+// ================= LED CONTROL FUNCTIONS (Moved from actuators) =================
+
+/**
+ * Sterowanie LED przez UART
+ */
+void setLEDState(bool state) {
+    String params = "{\"state\":" + String(state ? "true" : "false") + "}";
+    
+    if (sendCommand("set_led", params)) {
+        ledState = state; // Update cache optimistically
+        
+        Serial.println("[WEBSERVER-LED-COMMAND] Wysłano komendę LED: " + String(state ? "ON" : "OFF"));
+        Serial.println();
+    } else {
+        Serial.println("[WEBSERVER-LED-ERROR] Błąd wysyłania komendy LED");
+        Serial.println();
+    }
+}
+
+/**
+ * Pobierz stan LED z cache
+ */
+bool getLEDState() {
+    return ledState;
+}
+
+/**
+ * Aktualizuj cache na podstawie odpowiedzi z IoT
+ */
+void updateStateFromResponse(const String& action, const String& result) {
+    if (action == "set_led") {
+        if (result.indexOf("\"led_state\":true") != -1) {
+            ledState = true;
+            Serial.println("[WEBSERVER-LED-SYNC] Stan LED potwierdzony przez IoT: ON");
+            Serial.println();
+        } else if (result.indexOf("\"led_state\":false") != -1) {
+            ledState = false;
+            Serial.println("[WEBSERVER-LED-SYNC] Stan LED potwierdzony przez IoT: OFF");
+            Serial.println();
+        }
+    }
+}
+
+/**
+ * Żądaj synchronizacji stanu z IoT
+ */
+void requestStateSync() {
+    Serial.println("[WEBSERVER-SYNC-REQUEST] Żądanie synchronizacji stanu z IoT");
+    Serial.println();
+    
+    if (sendCommand("get_status", "{}")) {
+        Serial.println("[WEBSERVER-SYNC-SENT] Komenda synchronizacji wysłana");
+        Serial.println();
+    } else {
+        Serial.println("[WEBSERVER-SYNC-ERROR] Błąd wysyłania synchronizacji");
+        Serial.println();
+    }
+}
+
+/**
+ * Przetwórz odpowiedź synchronizacji stanu
+ */
+void processSyncResponse(const String& result) {
+    Serial.println("[WEBSERVER-SYNC-RESPONSE] Przetwarzanie odpowiedzi synchronizacji");
+    Serial.println(result);
+    Serial.println();
+    
+    if (result.indexOf("\"led_state\":true") != -1) {
+        ledState = true;
+    } else if (result.indexOf("\"led_state\":false") != -1) {
+        ledState = false;
+    }
+}
+
+// ================= STATUS FUNCTIONS =================
+
 /**
  * Pobierz ostatnią odpowiedź
  */
 UARTResponse getLastResponse(uint32_t commandId) {
     UARTResponse emptyResponse;
     emptyResponse.valid = false;
-    // W tej implementacji nie cachujemy responses
-    // Można rozszerzyć w przyszłości
     return emptyResponse;
 }
 
@@ -432,8 +449,7 @@ bool isIoTConnected() {
  * Posprzątaj stare komendy
  */
 void cleanupOldCommands() {
-    // Ta funkcja jest wywoływana przez checkCommandTimeouts()
-    // Można dodać dodatkowe czyszczenie jeśli potrzeba
+    // Handled by checkCommandTimeouts()
 }
 
 /**
