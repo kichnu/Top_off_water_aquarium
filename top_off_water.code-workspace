@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "ESP32_WebServer"
+		},
+
+		{
+			"path": "RaspberryPI_Pico_Iot"
+		}
+	],
+	"settings": {}
+}
