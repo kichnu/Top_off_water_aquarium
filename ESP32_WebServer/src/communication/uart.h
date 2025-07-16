@@ -27,6 +27,16 @@ struct UARTResponse {
     bool valid;
 };
 
+
+struct WaterSystemStatus {
+    String waterLevel;      // "LOW" lub "OK"
+    bool pumpActive;
+    int eventsToday;
+    String lastPumpTime;
+    unsigned long lastUpdate;
+};
+
+
 // ================= STAŁE =================
 const int MAX_PENDING_COMMANDS = 10;
 const unsigned long COMMAND_TIMEOUT = 2000;  // 2 sekundy
@@ -58,6 +68,13 @@ bool parseResponseJSON(const String& jsonStr, UARTResponse& response);
 uint32_t generateCommandId();
 void cleanupOldCommands();
 
+
+void requestWaterStatus();
+WaterSystemStatus getWaterSystemStatus();
+void triggerManualPump();
+void setPumpConfiguration(int volumeML, int timeS);
+void requestRecentLogs(int count);
+
 // ================= STATUS FUNCTIONS =================
 int getPendingCommandsCount();
 unsigned long getLastHeartbeat();
@@ -73,4 +90,5 @@ extern String lastError;
 extern String uartBuffer;
 extern bool ledState; // LED state cache (moved from actuators)
 
+extern WaterSystemStatus waterSystemStatus;
 #endif

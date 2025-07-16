@@ -16,6 +16,12 @@ void setupAPIRoutes() {
     // ================= API - LED ONLY =================
     server.on("/api/led/status", HTTP_GET, handleLEDStatus);
     server.on("/api/led/toggle", HTTP_POST, handleLEDToggle);
+
+        // ========== NOWE: WATER SYSTEM API ==========
+    server.on("/api/water/status", HTTP_GET, handleWaterStatus);
+    server.on("/api/water/pump", HTTP_POST, handleManualPump);
+    server.on("/api/water/config", HTTP_POST, handlePumpConfig);
+    server.on("/api/water/logs", HTTP_GET, handleWaterLogs);
     
     // ================= API - BASIC STATUS =================
     server.on("/api/status", HTTP_GET, handleBasicStatus);
@@ -130,6 +136,109 @@ void handleLEDToggle(AsyncWebServerRequest* request) {
     json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
     json += "\"pending_commands\":" + String(pendingCommands) + ",";
     json += "\"status\":\"" + String(iotConnected ? "sent" : "queued") + "\"";
+    json += "}";
+    
+    request->send(200, "application/json", json);
+}
+
+
+// API - Status systemu wody
+void handleWaterStatus(AsyncWebServerRequest* request) {
+    if (!checkAuthentication(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    
+    // Żądaj świeżego statusu z IoT
+    requestWaterStatus();
+    
+    // Zwróć cache (może być nieaktualny jeśli IoT nie odpowiada)
+    WaterSystemStatus status = getWaterSystemStatus();
+    bool iotConnected = isIoTConnected();
+    
+    String json = "{";
+    json += "\"water_level\":\"" + status.waterLevel + "\",";
+    json += "\"pump_active\":" + String(status.pumpActive ? "true" : "false") + ",";
+    json += "\"events_today\":" + String(status.eventsToday) + ",";
+    json += "\"last_pump_time\":\"" + status.lastPumpTime + "\",";
+    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
+    json += "\"last_update\":" + String(status.lastUpdate);
+    json += "}";
+    
+    request->send(200, "application/json", json);
+}
+
+// API - Ręczne uruchomienie pompy
+void handleManualPump(AsyncWebServerRequest* request) {
+    if (!checkAuthentication(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    
+    // Wyślij komendę do IoT
+    triggerManualPump();
+    
+    String json = "{";
+    json += "\"command_sent\":true,";
+    json += "\"iot_connected\":" + String(isIoTConnected() ? "true" : "false");
+    json += "}";
+    
+    request->send(200, "application/json", json);
+}
+
+// API - Konfiguracja pompy
+void handlePumpConfig(AsyncWebServerRequest* request) {
+    if (!checkAuthentication(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    
+    if (!request->hasParam("volume", true) || !request->hasParam("time", true)) {
+        request->send(400, "application/json", "{\"error\":\"Missing parameters\"}");
+        return;
+    }
+    
+    int volumeML = request->getParam("volume", true)->value().toInt();
+    int timeS = request->getParam("time", true)->value().toInt();
+    
+    if (volumeML < 1 || volumeML > 1000 || timeS < 1 || timeS > 120) {
+        request->send(400, "application/json", "{\"error\":\"Invalid parameters\"}");
+        return;
+    }
+    
+    // Wyślij konfigurację do IoT
+    setPumpConfiguration(volumeML, timeS);
+    
+    String json = "{";
+    json += "\"volume_ml\":" + String(volumeML) + ",";
+    json += "\"time_s\":" + String(timeS) + ",";
+    json += "\"command_sent\":true";
+    json += "}";
+    
+    request->send(200, "application/json", json);
+}
+
+// API - Ostatnie logi
+void handleWaterLogs(AsyncWebServerRequest* request) {
+    if (!checkAuthentication(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    
+    int count = 10;
+    if (request->hasParam("count")) {
+        count = request->getParam("count")->value().toInt();
+        count = constrain(count, 1, 50);
+    }
+    
+    // Żądaj logów z IoT
+    requestRecentLogs(count);
+    
+    // Tymczasowa odpowiedź (w przyszłości można cache'ować odpowiedź)
+    String json = "{";
+    json += "\"logs_requested\":true,";
+    json += "\"count\":" + String(count) + ",";
+    json += "\"iot_connected\":" + String(isIoTConnected() ? "true" : "false");
     json += "}";
     
     request->send(200, "application/json", json);

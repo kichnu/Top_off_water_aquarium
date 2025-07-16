@@ -10,7 +10,10 @@ void setupAPIRoutes();
 // ================= LED API =================
 void handleLEDStatus(AsyncWebServerRequest* request);
 void handleLEDToggle(AsyncWebServerRequest* request);
-
+void handleWaterStatus(AsyncWebServerRequest* request);
+void handleManualPump(AsyncWebServerRequest* request);
+void handlePumpConfig(AsyncWebServerRequest* request);
+void handleWaterLogs(AsyncWebServerRequest* request);
 // ================= STATUS API =================
 void handleBasicStatus(AsyncWebServerRequest* request);
 

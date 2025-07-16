@@ -274,11 +274,124 @@ const char* DASHBOARD_JS = R"rawliteral(
                     window.location.href = '/';
                 });
         }
+
+
+
+
+                // ========== WATER SYSTEM FUNCTIONS ==========
+        function checkWaterStatus() {
+            fetch('/api/water/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateWaterLevelUI(data.water_level);
+                    updatePumpStatusUI(data.pump_active);
+                    updateWaterEventsUI(data.events_today);
+                    updateIoTStatus(data.iot_connected);
+                })
+                .catch(error => console.error('Błąd sprawdzania statusu wody:', error));
+        }
+
+        function updateWaterLevelUI(level) {
+            const waterLevel = document.getElementById('waterLevel');
+            if (waterLevel) {
+                if (level === 'LOW') {
+                    waterLevel.textContent = '💧 Poziom wody: NISKI';
+                    waterLevel.className = 'water-status water-low';
+                } else {
+                    waterLevel.textContent = '💧 Poziom wody: OK';
+                    waterLevel.className = 'water-status water-ok';
+                }
+            }
+        }
+
+        function updatePumpStatusUI(active) {
+            const pumpStatus = document.getElementById('pumpStatus');
+            if (pumpStatus) {
+                if (active) {
+                    pumpStatus.textContent = '⚡ Pompa: AKTYWNA';
+                    pumpStatus.className = 'pump-status pump-active';
+                } else {
+                    pumpStatus.textContent = '⚡ Pompa: Gotowa';
+                    pumpStatus.className = 'pump-status pump-ready';
+                }
+            }
+        }
+
+        function updateWaterEventsUI(events) {
+            const eventsToday = document.getElementById('eventsToday');
+            if (eventsToday) {
+                eventsToday.textContent = 'Zdarzenia dzisiaj: ' + events;
+            }
+        }
+
+        function manualPump() {
+            const pumpButton = document.getElementById('manualPumpBtn');
+            if (pumpButton) {
+                pumpButton.disabled = true;
+                pumpButton.textContent = 'Uruchamianie...';
+            }
+            
+            fetch('/api/water/pump', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.command_sent) {
+                        showNotification('Komenda ręcznego pompowania wysłana', 'success');
+                        setTimeout(checkWaterStatus, 2000); // Odśwież status po 2s
+                    } else {
+                        showNotification('Błąd wysyłania komendy', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Błąd ręcznego pompowania:', error);
+                    showNotification('Błąd komunikacji', 'error');
+                })
+                .finally(() => {
+                    if (pumpButton) {
+                        pumpButton.disabled = false;
+                        pumpButton.textContent = 'Uruchom pompę';
+                    }
+                });
+        }
+
+        function savePumpConfig() {
+            const volumeInput = document.getElementById('volumeInput');
+            const timeInput = document.getElementById('timeInput');
+            
+            if (!volumeInput || !timeInput) return;
+            
+            const volume = parseInt(volumeInput.value);
+            const time = parseInt(timeInput.value);
+            
+            if (volume < 1 || volume > 1000 || time < 1 || time > 120) {
+                showNotification('Nieprawidłowe wartości (Volume: 1-1000ml, Time: 1-120s)', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('volume', volume);
+            formData.append('time', time);
+            
+            fetch('/api/water/config', { 
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    showNotification(`Konfiguracja zapisana: ${volume}ml w ${time}s`, 'success');
+                })
+                .catch(error => {
+                    console.error('Błąd zapisywania konfiguracji:', error);
+                    showNotification('Błąd zapisywania konfiguracji', 'error');
+                });
+        }
         
         window.onload = function() {
             checkLEDStatus();
+            checkWaterStatus();
             updateStatusInfo();
+
             setInterval(checkLEDStatus, 30000);  // Check LED status every 30 seconds
+            setInterval(checkWaterStatus, 15000);
             setInterval(updateStatusInfo, 10000); // Update status every 10 seconds for fresh heartbeat
         };
 )rawliteral";
@@ -463,6 +576,94 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
         .notification-info {
             background: #007bff;
         }
+
+
+        .water-system-status {
+            margin-bottom: 20px;
+        }
+        .water-status, .pump-status {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .water-low {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .water-ok {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .water-unknown {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .pump-active {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .pump-ready {
+            background: #f8f9fa;
+            color: #6c757d;
+            border: 1px solid #dee2e6;
+        }
+        .pump-unknown {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .events-counter {
+            text-align: center;
+            margin: 10px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .manual-control, .pump-config {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .pump-button {
+            background: #007bff;
+            font-size: 16px;
+            padding: 12px 24px;
+        }
+        .pump-button:hover {
+            background: #0056b3;
+        }
+        .pump-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .config-button {
+            background: #28a745;
+        }
+        .config-button:hover {
+            background: #1e7e34;
+        }
+        .config-row {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .config-row label {
+            min-width: 120px;
+            font-weight: bold;
+        }
+        .config-row input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -509,6 +710,44 @@ const char* DASHBOARD_PAGE_HTML = R"rawliteral(
                 <small style="color: #666;">Stan LED jest kontrolowany przez IoT urządzenie</small>
             </div>
         </div>
+
+        <div class="card">
+            <h2>💧 System dolewania wody</h2>
+            
+            <!-- Status -->
+            <div class="water-system-status">
+                <div id="waterLevel" class="water-status water-unknown">💧 Poziom wody: Sprawdzanie...</div>
+                <div id="pumpStatus" class="pump-status pump-unknown">⚡ Pompa: Sprawdzanie...</div>
+                <div id="eventsToday" class="events-counter">Zdarzenia dzisiaj: ---</div>
+            </div>
+            
+            <!-- Manual Control -->
+            <div class="manual-control">
+                <h3>Ręczne sterowanie</h3>
+                <button id="manualPumpBtn" class="control-button pump-button" onclick="manualPump()">
+                    Uruchom pompę
+                </button>
+                <p><small>Uruchamia pompę zgodnie z aktualną konfiguracją</small></p>
+            </div>
+            
+            <!-- Configuration -->
+            <div class="pump-config">
+                <h3>Konfiguracja pompy</h3>
+                <div class="config-row">
+                    <label for="volumeInput">Objętość (ml):</label>
+                    <input type="number" id="volumeInput" min="1" max="1000" value="50">
+                </div>
+                <div class="config-row">
+                    <label for="timeInput">Czas pracy (s):</label>
+                    <input type="number" id="timeInput" min="1" max="120" value="5">
+                </div>
+                <button class="control-button config-button" onclick="savePumpConfig()">
+                    Zapisz konfigurację
+                </button>
+            </div>
+        </div>
+
+
     </div>
     <script>
 )rawliteral";

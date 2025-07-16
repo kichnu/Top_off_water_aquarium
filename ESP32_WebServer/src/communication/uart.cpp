@@ -394,7 +394,40 @@ void updateStateFromResponse(const String& action, const String& result) {
             Serial.println();
         }
     }
-}
+    else if (action == "get_water_status") {
+        // Cache water system status
+        if (result.indexOf("\"water_level\":\"LOW\"") != -1) {
+            waterSystemStatus.waterLevel = "LOW";
+        } else {
+            waterSystemStatus.waterLevel = "OK";
+        }
+        
+        if (result.indexOf("\"pump_active\":true") != -1) {
+            waterSystemStatus.pumpActive = true;
+        } else {
+            waterSystemStatus.pumpActive = false;
+        }
+        
+        // Extract other values from JSON result
+        int eventsStart = result.indexOf("\"events_today\":") + 15;
+        if (eventsStart > 14) {
+            int eventsEnd = result.indexOf(",", eventsStart);
+            if (eventsEnd == -1) eventsEnd = result.indexOf("}", eventsStart);
+            waterSystemStatus.eventsToday = result.substring(eventsStart, eventsEnd).toInt();
+        }
+        
+        Serial.println("[WEBSERVER-WATER-SYNC] Status systemu wody zsynchronizowany");
+    }
+    else if (action == "manual_pump") {
+        Serial.println("[WEBSERVER-WATER-PUMP] Ręczne pompowanie wykonane");
+    }
+    else if (action == "set_pump_config") {
+        Serial.println("[WEBSERVER-WATER-CONFIG] Konfiguracja pompy zaktualizowana");
+    }
+}   
+
+
+
 
 /**
  * Żądaj synchronizacji stanu z IoT
@@ -484,4 +517,44 @@ String getConnectionStatus() {
  */
 String getLastError() {
     return lastError;
+}
+
+
+
+// Cache water system status
+WaterSystemStatus waterSystemStatus = {"UNKNOWN", false, 0, "", 0};
+
+// Pobierz status systemu wody
+void requestWaterStatus() {
+    if (sendCommand("get_water_status", "{}")) {
+        Serial.println("[WEBSERVER-WATER-REQUEST] Żądanie statusu systemu wody");
+    }
+}
+
+// Ręczne uruchomienie pompy
+void triggerManualPump() {
+    if (sendCommand("manual_pump", "{}")) {
+        Serial.println("[WEBSERVER-WATER-MANUAL] Komenda ręcznego pompowania");
+    }
+}
+
+// Ustaw konfigurację pompy
+void setPumpConfiguration(int volumeML, int timeS) {
+    String params = "{\"volume_ml\":" + String(volumeML) + ",\"time_s\":" + String(timeS) + "}";
+    if (sendCommand("set_pump_config", params)) {
+        Serial.println("[WEBSERVER-WATER-CONFIG] Komenda konfiguracji pompy");
+    }
+}
+
+// Pobierz ostatnie logi
+void requestRecentLogs(int count) {
+    String params = "{\"count\":" + String(count) + "}";
+    if (sendCommand("get_recent_logs", params)) {
+        Serial.println("[WEBSERVER-WATER-LOGS] Żądanie ostatnich logów");
+    }
+}
+
+// Pobierz status systemu wody z cache
+WaterSystemStatus getWaterSystemStatus() {
+    return waterSystemStatus;
 }

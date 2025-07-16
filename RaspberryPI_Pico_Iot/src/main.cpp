@@ -1,1085 +1,546 @@
-// /**
-//  * RASPBERRY PI PICO2 WATER SYSTEM - KOD TESTOWY (NAPRAWIONY)
-//  * 
-//  * Uproszczony kod do testowania wszystkich komponentów
-//  * Użyj PRZED uruchomieniem głównej aplikacji
-//  * 
-//  * Test sequence:
-//  * 1. RTC DS3231M (DFRobot)
-//  * 2. SD Card (SPI)
-//  * 3. Water sensor (GPIO)
-//  * 4. Pump relay (GPIO)
-//  * 5. UART communication
-//  */
+/**
+ * Raspberry Pi Pico2 IoT Water System - Main Application
+ * 
+ * System dolewania wody z komunikacją UART do WebServer ESP32
+ * Funkcje: czujnik poziomu wody, sterowanie pompy, RTC DS3231M, 
+ *          logowanie na SD, komunikacja UART JSON+CRC16
+ * 
+ * Version: 1.0-Pico2 - Raspberry Pi Pico2 Implementation
+ * Compatible with: WebServer ESP32 v2.1
+ */
+
+// ================= IMPORTY MODUŁÓW =================
+#include "config.h"
+#include "logic/water_system.h"
+#include "hardware/water_sensor.h"
+#include "hardware/pump_controller.h"
+#include "hardware/rtc_ds3231.h"
+#include "hardware/sd_logger.h"
+#include "config/settings.h"
+#include "communication/uart_protocol.h"
+#include <SPI.h>  // Dla karty SD
+
+// ================= ZMIENNE GLOBALNE =================
+unsigned long lastStatusPrint = 0;
+unsigned long lastSystemMaintenance = 0;
+bool systemFullyInitialized = false;
+
+// ================= DEKLARACJE FUNKCJI =================
+void printSystemSummary();
+void printSystemStatus();
+void performSystemMaintenance();
+void performStartupTests();
+void printFullSystemDebug();
+void handleCriticalError(const String& error);
+
+// ================= SETUP =================
+void setup() {
+    // Initialize USB serial for debugging (Pico2)
+    Serial.begin(SERIAL_DEBUG_SPEED);
+    while (!Serial && millis() < 5000) {
+        delay(10);  // Wait for USB serial connection or timeout after 5s
+    }
+    delay(1000);
+    
+    Serial.println("\n" + String("=").substring(0, 50));
+    Serial.println("🚀 Raspberry Pi Pico2 IoT Water System - Starting");
+    Serial.println("📅 Version: " + String(VERSION) + " - " + String(__DATE__) + " " + String(__TIME__));
+    Serial.println("🔗 Compatible with WebServer ESP32 v2.1");
+    Serial.println(String("=").substring(0, 50));
+    Serial.println();
+    
+    // ================= INICJALIZACJA SPRZĘTU =================
+    Serial.println("[PICO2-INIT] === INICJALIZACJA SPRZĘTU ===");
+    
+    // 1. Inicjalizuj RTC (czas jest krytyczny)
+    initializeRTC();
+    
+    // 2. Inicjalizuj kartę SD (logowanie)
+    initializeSDLogger();
+    
+    // 3. Inicjalizuj EEPROM i ustawienia
+    initializeSettings();
+    
+    // 4. Inicjalizuj sprzęt pompy i czujników
+    initializePumpController();
+    initializeWaterSensor();
+    
+    Serial.println("[PICO2-INIT] Sprzęt zainicjalizowany");
+    Serial.println();
+    
+    // ================= INICJALIZACJA KOMUNIKACJI =================
+    Serial.println("[PICO2-INIT] === INICJALIZACJA KOMUNIKACJI ===");
+    
+    // 5. Inicjalizuj protokół UART
+    initializeUARTProtocol();
+    
+    Serial.println("[PICO2-INIT] Komunikacja zainicjalizowana");
+    Serial.println();
+    
+    // ================= INICJALIZACJA SYSTEMU LOGIKI =================
+    Serial.println("[PICO2-INIT] === INICJALIZACJA SYSTEMU ===");
+    
+    // 6. Inicjalizuj główny system dolewania wody
+    initializeWaterSystem();
+    
+    systemFullyInitialized = true;
+    
+    // ================= PODSUMOWANIE INICJALIZACJI =================
+    Serial.println("[PICO2-READY] ✅ SYSTEM GOTOWY DO PRACY");
+    Serial.println();
+    printSystemSummary();
+    
+    // Test funkcjonalności (opcjonalnie)
+    #if ENABLE_DEBUG_LOGS
+    performStartupTests();
+    #endif
+    
+    Serial.println("[PICO2-MAIN-LOOP] Rozpoczynam główną pętlę systemu");
+    Serial.println(String("=").substring(0, 50) + "\n");
+}
+
+// ================= LOOP =================
+void loop() {
+    if (!systemFullyInitialized) {
+        delay(1000);
+        return;
+    }
+    
+    // ================= GŁÓWNA PĘTLA SYSTEMU =================
+    
+    // 1. Przetwarzaj komunikację UART z WebServerem
+    processUARTProtocol();
+    
+    // 2. Przetwarzaj logikę systemu dolewania wody
+    processWaterSystem();
+    
+    // 3. Konserwacja systemu (co 5 minut)
+    if (millis() - lastSystemMaintenance > 300000) {  // 5 minut
+        performSystemMaintenance();
+        lastSystemMaintenance = millis();
+    }
+    
+    // 4. Wydruk statusu (co 30 sekund)
+    if (millis() - lastStatusPrint > 30000) {  // 30 sekund
+        printSystemStatus();
+        lastStatusPrint = millis();
+    }
+    
+    // 5. Krótkie opóźnienie dla stabilności
+    delay(MAIN_LOOP_DELAY);
+}
+
+// ================= FUNKCJE POMOCNICZE =================
+
+/**
+ * Wydrukuj podsumowanie systemu po inicjalizacji
+ */
+void printSystemSummary() {
+    Serial.println("[PICO2-SUMMARY] === PODSUMOWANIE SYSTEMU ===");
+    
+    // Status sprzętu
+    Serial.printf("[PICO2-SUMMARY] RTC DS3231M: %s\n", isRTCWorking() ? "✅ Działa" : "❌ Błąd");
+    Serial.printf("[PICO2-SUMMARY] Karta SD: %s\n", isSDWorking() ? "✅ Działa" : "❌ Błąd");
+    Serial.printf("[PICO2-SUMMARY] Czujnik wody: %s\n", isWaterSensorWorking() ? "✅ Działa" : "❌ Błąd");
+    
+    // Konfiguracja pompy
+    PumpConfig config = getPumpConfig();
+    Serial.printf("[PICO2-SUMMARY] Konfiguracja pompy: %dml w %ds\n", config.volumeML, config.pumpTimeSeconds);
+    
+    // Status komunikacji
+    Serial.printf("[PICO2-SUMMARY] UART: Pin TX=GP%d, RX=GP%d, Baud=%d\n", UART_TX_PIN, UART_RX_PIN, UART_BAUD_RATE);
+    
+    // Aktualny czas
+    Serial.printf("[PICO2-SUMMARY] Aktualny czas: %s\n", getCurrentTimeString().c_str());
+    
+    // Stan systemu
+    WaterSystemStatus status = getWaterSystemStatus();
+    Serial.printf("[PICO2-SUMMARY] Poziom wody: %s\n", 
+                  status.waterLevel == WATER_LEVEL_LOW ? "NISKI" : "OK");
+    Serial.printf("[PICO2-SUMMARY] Łączne zdarzenia: %lu\n", status.totalEvents);
+    
+    Serial.println("[PICO2-SUMMARY] ============================");
+    Serial.println();
+}
+
+/**
+ * Wydrukuj bieżący status systemu
+ */
+void printSystemStatus() {
+    WaterSystemStatus status = getWaterSystemStatus();
+    bool webServerConn = isWebServerConnected();
+    
+    // Krótki status w jednej linii
+    Serial.printf("[PICO2-STATUS] Water:%s Pump:%s WebServer:%s Time:%s Events:%lu\n",
+                  status.waterLevel == WATER_LEVEL_LOW ? "LOW" : "OK",
+                  status.pumpActive ? "ON" : "OFF",
+                  webServerConn ? "CONN" : "DISC",
+                  getCurrentTimeOnlyString().c_str(),
+                  status.totalEvents);
+    
+    // Dodatkowe info jeśli są problemy
+    if (!isRTCWorking()) {
+        Serial.println("[PICO2-STATUS-WARNING] ⚠️ RTC nie działa prawidłowo");
+    }
+    if (!isSDWorking()) {
+        Serial.println("[PICO2-STATUS-WARNING] ⚠️ Karta SD niedostępna");
+    }
+    if (!webServerConn) {
+        Serial.println("[PICO2-STATUS-WARNING] ⚠️ Brak połączenia z WebServerem");
+    }
+}
+
+/**
+ * Konserwacja systemu
+ */
+void performSystemMaintenance() {
+    Serial.println("[PICO2-MAINTENANCE] Rozpoczynam konserwację systemu");
+    
+    // 1. Sprawdź stan pamięci (Pico2 ma więcej RAM)
+    uint32_t freeHeap = rp2040.getFreeHeap();
+    Serial.printf("[PICO2-MAINTENANCE] Wolna pamięć: %u bajtów\n", freeHeap);
+    
+    if (freeHeap < 50000) {  // Wyższy próg dla Pico2 (520KB RAM)
+        Serial.println("[PICO2-MAINTENANCE] ⚠️ Niska ilość wolnej pamięci!");
+    }
+    
+    // 2. Sprawdź uptime
+    unsigned long uptimeMinutes = millis() / 60000;
+    Serial.printf("[PICO2-MAINTENANCE] Uptime: %lu minut\n", uptimeMinutes);
+    
+    // 3. Sprawdź temperaturę RTC
+    if (isRTCWorking()) {
+        float rtcTemp = getRTCTemperature();
+        Serial.printf("[PICO2-MAINTENANCE] Temperatura RTC: %.1f°C\n", rtcTemp);
+    }
+    
+    // 4. Sprawdź status logów
+    String logInfo = getLogFileInfo();
+    Serial.println("[PICO2-MAINTENANCE] Status logów: " + logInfo);
+    
+    // 5. Czyszczenie starych danych (jeśli potrzeba)
+    // TODO: W przyszłości można dodać rotację logów
+    
+    Serial.println("[PICO2-MAINTENANCE] Konserwacja zakończona");
+    Serial.println();
+}
+
+/**
+ * Testy startowe systemu (debug)
+ */
+void performStartupTests() {
+    Serial.println("[PICO2-TEST] === TESTY STARTOWE ===");
+    
+    // Test 1: Test czujnika wody
+    Serial.println("[PICO2-TEST] Test czujnika poziomu wody:");
+    debugWaterSensor();
+    
+    // Test 2: Test RTC
+    Serial.println("[PICO2-TEST] Test RTC DS3231M:");
+    debugRTC();
+    
+    // Test 3: Test karty SD
+    Serial.println("[PICO2-TEST] Test karty SD:");
+    debugSDLogger();
+    
+    // Test 4: Test ustawień
+    Serial.println("[PICO2-TEST] Test ustawień EEPROM:");
+    debugSettings();
+    
+    // Test 5: Test protokołu UART
+    Serial.println("[PICO2-TEST] Test protokołu UART:");
+    debugUARTProtocol();
+    
+    // Test 6: Krótki test pompy (TYLKO JEŚLI BEZPIECZNE)
+    /*
+    Serial.println("[PICO2-TEST] Test pompy (2 sekundy):");
+    if (testPump()) {
+        Serial.println("[PICO2-TEST] ✅ Test pompy zakończony sukcesem");
+    } else {
+        Serial.println("[PICO2-TEST] ❌ Test pompy nieudany");
+    }
+    */
+    
+    Serial.println("[PICO2-TEST] === TESTY ZAKOŃCZONE ===");
+    Serial.println();
+}
+
+/**
+ * Debug - wydrukuj pełny status wszystkich systemów
+ */
+void printFullSystemDebug() {
+    Serial.println("\n[PICO2-DEBUG] === PEŁNY DEBUG SYSTEMU ===");
+    
+    debugWaterSensor();
+    debugPumpController();
+    debugRTC();
+    debugSDLogger();
+    debugSettings();
+    debugUARTProtocol();
+    
+    Serial.println("[PICO2-DEBUG] === DEBUG ZAKOŃCZONY ===\n");
+}
+
+/**
+ * Obsługa błędów krytycznych
+ */
+void handleCriticalError(const String& error) {
+    Serial.println("[PICO2-CRITICAL-ERROR] ⚠️⚠️⚠️ BŁĄD KRYTYCZNY ⚠️⚠️⚠️");
+    Serial.println("[PICO2-CRITICAL-ERROR] " + error);
+    Serial.println("[PICO2-CRITICAL-ERROR] System przechodzi w tryb awaryjny");
+    
+    // Wyłącz pompę dla bezpieczeństwa
+    stopPump();
+    
+    // Migaj LED lub inny sygnał błędu
+    while (true) {
+        Serial.println("[PICO2-EMERGENCY] System w trybie awaryjnym - " + error);
+        delay(5000);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * PICO2 HARDWARE SCANNER
+ * 
+ * Test I2C i SPI połączeń
+ * Zastąp tym src/main.cpp i upload
+ */
 
 // #include <Arduino.h>
 // #include <Wire.h>
 // #include <SPI.h>
 // #include <SD.h>
-// #include "DFRobot_DS3231M.h"
 
-// // ================= PINY PICO2 =================
-// #define WATER_SENSOR_PIN    15  // GP15 - Float switch
-// #define PUMP_RELAY_PIN      14  // GP14 - Relay control
-// #define SD_CS_PIN           17  // GP17 - SD CS
-// #define SD_MOSI_PIN         19  // GP19 - SD MOSI
-// #define SD_MISO_PIN         16  // GP16 - SD MISO  
-// #define SD_CLK_PIN          18  // GP18 - SD CLK
-// #define RTC_SDA_PIN         4   // GP4 - RTC SDA
-// #define RTC_SCL_PIN         5   // GP5 - RTC SCL
-// #define UART_TX_PIN         8   // GP8 - UART TX
-// #define UART_RX_PIN         9   // GP9 - UART RX
-
-// // ================= OBJEKTY =================
-// DFRobot_DS3231M rtc;
-
-// // ================= ZMIENNE TESTOWE =================
-// bool rtcWorking = false;
-// bool sdWorking = false;
-// bool sensorWorking = false;
-// bool pumpWorking = false;
-// bool uartWorking = false;
+// // Piny zgodnie z config
+// #define RTC_SDA_PIN 4   // GP4
+// #define RTC_SCL_PIN 5   // GP5
+// #define SD_CS_PIN   17  // GP17
+// #define SD_MOSI_PIN 19  // GP19
+// #define SD_MISO_PIN 16  // GP16
+// #define SD_CLK_PIN  18  // GP18
+// #define LED  25 
 
 // // ================= DEKLARACJE FUNKCJI =================
-// void testRTC();
-// void testSDCard();
-// void testWaterSensor();
-// void testPumpRelay();
-// void testUART();
-// void printTestSummary();
-// void printQuickStatus();
-// void handleCommand(char cmd);
+// void testI2C();
+// void testSPI();
+// void testGPIO();
 
-// // ================= SETUP I LOOP =================
 // void setup() {
-//     // USB Serial
 //     Serial.begin(115200);
-//     while (!Serial && millis() < 5000) {
-//         delay(10);
-//     }
-//     delay(1000);
+//     pinMode(LED, OUTPUT);
+//     while (!Serial && millis() < 3000) delay(10);
     
-//     Serial.println("\n" + String("=").substring(0, 60));
-//     Serial.println("🧪 RASPBERRY PI PICO2 WATER SYSTEM - TEST MODE");
-//     Serial.println("📋 Testing all components before main application");
-//     Serial.println(String("=").substring(0, 60));
+//     Serial.println("\n" + String("=").substring(0, 50));
+//     Serial.println("🔍 PICO2 HARDWARE SCANNER");
+//     Serial.println("Testing I2C (RTC) and SPI (SD) connections");
+//     Serial.println(String("=").substring(0, 50));
 //     Serial.println();
     
-//     // Test wszystkich komponentów
-//     testRTC();
-//     testSDCard();
-//     testWaterSensor();
-//     testPumpRelay();
-//     testUART();
+//     testI2C();
+//     Serial.println();
+//     testSPI();
+//     Serial.println();
+//     testGPIO();
+//     Serial.println();
     
-//     // Podsumowanie testów
-//     printTestSummary();
-    
-//     Serial.println("\n🔄 Starting continuous monitoring...");
-//     Serial.println("Send 'p' to test pump, 'r' to read RTC, 's' for sensor");
+//     Serial.println("🎯 HARDWARE SCAN COMPLETE");
+//     Serial.println("Send 'i' for I2C scan, 's' for SPI test, 'g' for GPIO test");
 // }
 
 // void loop() {
-//     // Continuous monitoring
-//     static unsigned long lastStatus = 0;
-//     if (millis() - lastStatus > 5000) {
-//         lastStatus = millis();
-//         printQuickStatus();
-//     }
-    
-//     // Interactive commands
 //     if (Serial.available()) {
 //         char cmd = Serial.read();
-//         handleCommand(cmd);
+//         Serial.println();
+        
+//         switch (cmd) {
+//             case 'i':
+//             case 'I':
+//                 testI2C();
+//                 break;
+//             case 's':
+//             case 'S':
+//                 testSPI();
+//                 break;
+//             case 'g':
+//             case 'G':
+//                 testGPIO();
+//                 break;
+//             case 'h':
+//             case 'H':
+//                 Serial.println("Commands: i=I2C scan, s=SPI test, g=GPIO test, h=help");
+//                 break;
+//         }
+//         Serial.println();
 //     }
-    
+
+//     digitalWrite(LED, HIGH);
 //     delay(100);
+//     digitalWrite(LED, LOW);
+//     delay(100);
+
+
 // }
 
-// // ================= TESTY KOMPONENTÓW =================
-// /**
-//  * Test RTC DS3231M
-//  */
-// void testRTC() {
-//     Serial.println("🕒 TEST 1: RTC DS3231M (DFRobot)");
-//     Serial.println("----------------------------------------");
+// void testI2C() {
+//     Serial.println("🔍 === I2C SCAN TEST ===");
+//     Serial.printf("I2C pins: SDA=GP%d, SCL=GP%d\n", RTC_SDA_PIN, RTC_SCL_PIN);
     
-//     // Konfiguracja I2C
+//     // Konfiguruj I2C
 //     Wire.setSDA(RTC_SDA_PIN);
 //     Wire.setSCL(RTC_SCL_PIN);
 //     Wire.begin();
     
-//     Serial.printf("I2C pins: SDA=GP%d, SCL=GP%d\n", RTC_SDA_PIN, RTC_SCL_PIN);
+//     Serial.println("Scanning I2C addresses 0x01-0x7F...");
     
-//     // Inicjalizacja RTC
-//     int attempts = 0;
-//     while(rtc.begin() != true && attempts < 5) {
-//         Serial.printf("RTC init attempt %d/5...\n", attempts + 1);
-//         delay(1000);
-//         attempts++;
+//     int devices = 0;
+//     for (byte addr = 1; addr < 127; addr++) {
+//         Wire.beginTransmission(addr);
+//         byte error = Wire.endTransmission();
+        
+//         if (error == 0) {
+//             Serial.printf("✅ I2C device found at address 0x%02X", addr);
+            
+//             // Identify known devices
+//             if (addr == 0x68) {
+//                 Serial.print(" (DS3231 RTC)");
+//             } else if (addr == 0x50) {
+//                 Serial.print(" (EEPROM)");
+//             } else if (addr == 0x3C || addr == 0x3D) {
+//                 Serial.print(" (OLED Display)");
+//             }
+//             Serial.println();
+//             devices++;
+//         }
+//         else if (error == 4) {
+//             Serial.printf("❌ Unknown error at address 0x%02X\n", addr);
+//         }
 //     }
     
-//     if (attempts >= 5) {
-//         Serial.println("❌ RTC DS3231M initialization FAILED");
-//         Serial.println("   Check I2C connections and power");
-//         rtcWorking = false;
+//     if (devices == 0) {
+//         Serial.println("❌ NO I2C DEVICES FOUND!");
+//         Serial.println("   Check connections:");
+//         Serial.printf("   - VCC+ → Pico2 3V3\n");
+//         Serial.printf("   - GND- → Pico2 GND\n");
+//         Serial.printf("   - SDA → Pico2 GP%d\n", RTC_SDA_PIN);
+//         Serial.printf("   - SCL → Pico2 GP%d\n", RTC_SCL_PIN);
+//         Serial.println("   - Pull-up resistors (if needed)");
+//         Serial.println("   - DS3231M should appear at 0x68");
 //     } else {
-//         Serial.println("✅ RTC DS3231M initialized successfully");
-        
-//         // Test odczytu czasu
-//         rtc.getNowTime();
-//         Serial.printf("📅 Current time: %04d-%02d-%02d %02d:%02d:%02d\n",
-//                       rtc.year(), rtc.month(), rtc.day(),
-//                       rtc.hour(), rtc.minute(), rtc.second());
-        
-//         // Test temperatury
-//         float temp = rtc.getTemperatureC();
-//         Serial.printf("🌡️  RTC temperature: %.2f°C\n", temp);
-        
-//         // Sprawdź czy czas się zmienia
-//         int sec1 = rtc.second();
-//         delay(1100);
-//         rtc.getNowTime();
-//         int sec2 = rtc.second();
-        
-//         if (sec1 != sec2) {
-//             Serial.println("✅ RTC time is counting");
-//             rtcWorking = true;
-//         } else {
-//             Serial.println("❌ RTC time not changing - check crystal");
-//             rtcWorking = false;
-//         }
-        
-//         if (rtc.lostPower()) {
-//             Serial.println("⚠️  RTC lost power - time may be incorrect");
-//         }
+//         Serial.printf("✅ Found %d I2C device(s)\n", devices);
 //     }
-    
-//     Serial.println();
 // }
 
-// /**
-//  * Test karty SD - uproszczona wersja
-//  */
-// void testSDCard() {
-//     Serial.println("💾 TEST 2: MicroSD Card (SPI)");
-//     Serial.println("----------------------------------------");
+// void testSPI() {
+//     Serial.println("💾 === SPI/SD CARD TEST ===");
+//     Serial.printf("SPI pins: MISO=GP%d, MOSI=GP%d, CLK=GP%d, CS=GP%d\n", 
+//                   SD_MISO_PIN, SD_MOSI_PIN, SD_CLK_PIN, SD_CS_PIN);
     
-//     // Konfiguracja SPI
+//     // Konfiguruj SPI
 //     SPI.setRX(SD_MISO_PIN);
 //     SPI.setTX(SD_MOSI_PIN);
 //     SPI.setSCK(SD_CLK_PIN);
     
-//     Serial.printf("SPI pins: MISO=GP%d, MOSI=GP%d, CLK=GP%d, CS=GP%d\n",
-//                   SD_MISO_PIN, SD_MOSI_PIN, SD_CLK_PIN, SD_CS_PIN);
-    
-//     // Inicjalizacja SD
-//     if (!SD.begin(SD_CS_PIN)) {
-//         Serial.println("❌ SD Card initialization FAILED");
-//         Serial.println("   Check SD card, connections, and formatting (FAT32)");
-//         sdWorking = false;
-//     } else {
-//         Serial.println("✅ SD Card initialized successfully");
-        
-//         // Podstawowe info o karcie (bez niedostępnych metod)
-//         Serial.println("📊 SD Card detected and accessible");
-        
-//         // Test zapisu
-//         File testFile = SD.open("/test.txt", FILE_WRITE);
-//         if (testFile) {
-//             testFile.println("Pico2 Water System Test");
-//             testFile.println("Timestamp: " + String(millis()));
-//             testFile.close();
-            
-//             // Test odczytu
-//             testFile = SD.open("/test.txt");
-//             if (testFile) {
-//                 Serial.println("✅ SD write/read test successful");
-//                 while (testFile.available()) {
-//                     String line = testFile.readStringUntil('\n');
-//                     line.trim(); // Remove whitespace
-//                     if (line.length() > 0) {
-//                         Serial.println("   File content: " + line);
-//                     }
-//                 }
-//                 testFile.close();
-                
-//                 // Usuń plik testowy
-//                 SD.remove("/test.txt");
-//                 sdWorking = true;
-//             } else {
-//                 Serial.println("❌ SD read test FAILED");
-//                 sdWorking = false;
-//             }
-//         } else {
-//             Serial.println("❌ SD write test FAILED");
-//             sdWorking = false;
-//         }
-//     }
-    
-//     Serial.println();
-// }
-
-// /**
-//  * Test czujnika poziomu wody
-//  */
-// void testWaterSensor() {
-//     Serial.println("💧 TEST 3: Water Level Sensor (Float Switch)");
-//     Serial.println("----------------------------------------");
-    
-//     pinMode(WATER_SENSOR_PIN, INPUT_PULLUP);
-    
-//     Serial.printf("Sensor pin: GP%d (INPUT_PULLUP)\n", WATER_SENSOR_PIN);
-//     Serial.println("Logic: LOW = water level low, HIGH = water level OK");
-    
-//     // Test odczytu
-//     bool state1 = digitalRead(WATER_SENSOR_PIN);
-//     delay(100);
-//     bool state2 = digitalRead(WATER_SENSOR_PIN);
-//     delay(100);
-//     bool state3 = digitalRead(WATER_SENSOR_PIN);
-    
-//     Serial.printf("Pin readings: %s, %s, %s\n",
-//                   state1 ? "HIGH" : "LOW",
-//                   state2 ? "HIGH" : "LOW",
-//                   state3 ? "HIGH" : "LOW");
-    
-//     if (state1 == state2 && state2 == state3) {
-//         Serial.printf("✅ Sensor stable reading: %s\n", state1 ? "WATER OK" : "WATER LOW");
-//         sensorWorking = true;
-//     } else {
-//         Serial.println("⚠️  Sensor readings unstable - check connections");
-//         sensorWorking = false;
-//     }
-    
-//     Serial.println("🔧 Manual test: Try changing float position and check readings");
-    
-//     Serial.println();
-// }
-
-// /**
-//  * Test przekaźnika pompy
-//  */
-// void testPumpRelay() {
-//     Serial.println("⚡ TEST 4: Pump Relay Control");
-//     Serial.println("----------------------------------------");
-    
-//     pinMode(PUMP_RELAY_PIN, OUTPUT);
-//     digitalWrite(PUMP_RELAY_PIN, LOW);
-    
-//     Serial.printf("Relay pin: GP%d (OUTPUT)\n", PUMP_RELAY_PIN);
-//     Serial.println("Logic: HIGH = pump ON, LOW = pump OFF");
-    
-//     // Test ON
-//     Serial.println("🔄 Testing relay ON (2 seconds)...");
-//     digitalWrite(PUMP_RELAY_PIN, HIGH);
-//     delay(2000);
-    
-//     // Test OFF
-//     Serial.println("🔄 Testing relay OFF...");
-//     digitalWrite(PUMP_RELAY_PIN, LOW);
-    
-//     Serial.println("✅ Relay control test completed");
-//     Serial.println("🔧 Check if relay LED/click responds to commands");
-//     Serial.println("⚠️  Connect pump ONLY after confirming relay works");
-    
-//     pumpWorking = true;  // Assume working if no exceptions
-    
-//     Serial.println();
-// }
-
-// /**
-//  * Test komunikacji UART
-//  */
-// void testUART() {
-//     Serial.println("📡 TEST 5: UART Communication");
-//     Serial.println("----------------------------------------");
-    
-//     Serial1.setTX(UART_TX_PIN);
-//     Serial1.setRX(UART_RX_PIN);
-//     Serial1.begin(1200);
-    
-//     Serial.printf("UART pins: TX=GP%d, RX=GP%d, Baud=1200\n", UART_TX_PIN, UART_RX_PIN);
-//     Serial.println("Purpose: Communication with ESP32-C6 WebServer");
-    
-//     // Test wysyłania
-//     Serial.println("📤 Sending test message...");
-//     Serial1.println("{\"test\":\"pico2_ready\",\"timestamp\":" + String(millis()) + "}");
-//     Serial1.flush();
-    
-//     // Test odbierania (timeout 3s)
-//     Serial.println("📥 Listening for response (3s timeout)...");
-//     unsigned long startTime = millis();
-//     String response = "";
-    
-//     while (millis() - startTime < 3000) {
-//         if (Serial1.available()) {
-//             response += (char)Serial1.read();
-//         }
-//         delay(10);
-//     }
-    
-//     if (response.length() > 0) {
-//         Serial.println("✅ UART response received:");
-//         Serial.println("   " + response);
-//         uartWorking = true;
-//     } else {
-//         Serial.println("⚠️  No UART response (normal if ESP32-C6 not connected)");
-//         Serial.println("   Connect ESP32-C6 WebServer for full test");
-//         uartWorking = false;  // Not an error, just not connected
-//     }
-    
-//     Serial.println();
-// }
-
-// // ================= POMOCNICZE =================
-// /**
-//  * Podsumowanie testów
-//  */
-// void printTestSummary() {
-//     Serial.println(String("=").substring(0, 60));
-//     Serial.println("📊 TEST SUMMARY");
-//     Serial.println(String("=").substring(0, 60));
-    
-//     Serial.printf("🕒 RTC DS3231M:      %s\n", rtcWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("💾 SD Card:          %s\n", sdWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("💧 Water Sensor:     %s\n", sensorWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("⚡ Pump Relay:       %s\n", pumpWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("📡 UART Comm:        %s\n", uartWorking ? "✅ OK" : "⚠️  NO ESP32-C6");
-    
-//     Serial.println();
-    
-//     int workingComponents = rtcWorking + sdWorking + sensorWorking + pumpWorking;
-    
-//     if (workingComponents >= 4) {
-//         Serial.println("🎉 SYSTEM READY FOR MAIN APPLICATION!");
-//         Serial.println("   You can now upload the main water system code");
-//     } else {
-//         Serial.println("⚠️  SOME COMPONENTS NEED ATTENTION");
-//         Serial.println("   Fix issues before deploying main application");
-//     }
-    
-//     Serial.println(String("=").substring(0, 60));
-//     Serial.println();
-// }
-
-// /**
-//  * Szybki status (continuous monitoring)
-//  */
-// void printQuickStatus() {
-//     // Current time
-//     String timeStr = "No RTC";
-//     if (rtcWorking) {
-//         rtc.getNowTime();
-//         char buffer[20];
-//         sprintf(buffer, "%02d:%02d:%02d", rtc.hour(), rtc.minute(), rtc.second());
-//         timeStr = String(buffer);
-//     }
-    
-//     // Water sensor
-//     bool waterLevel = digitalRead(WATER_SENSOR_PIN);
-    
-//     // Memory
-//     uint32_t freeHeap = rp2040.getFreeHeap();
-    
-//     Serial.printf("[MONITOR] Time:%s Water:%s Memory:%uKB Uptime:%lum\n",
-//                   timeStr.c_str(),
-//                   waterLevel ? "OK" : "LOW",
-//                   freeHeap / 1024,
-//                   millis() / 60000);
-// }
-
-// /**
-//  * Obsługa komend interaktywnych - naprawiona
-//  */
-// void handleCommand(char cmd) {
-//     switch (cmd) {
-//         case 'p':
-//         case 'P':
-//             Serial.println("\n🔄 Manual pump test (3 seconds):");
-//             digitalWrite(PUMP_RELAY_PIN, HIGH);
-//             Serial.println("   Pump ON");
-//             delay(3000);
-//             digitalWrite(PUMP_RELAY_PIN, LOW);
-//             Serial.println("   Pump OFF");
-//             break;
-            
-//         case 'r':
-//         case 'R':
-//             if (rtcWorking) {
-//                 rtc.getNowTime();
-//                 Serial.printf("\n🕒 RTC Reading: %04d-%02d-%02d %02d:%02d:%02d (%.2f°C)\n",
-//                               rtc.year(), rtc.month(), rtc.day(),
-//                               rtc.hour(), rtc.minute(), rtc.second(),
-//                               rtc.getTemperatureC());
-//             } else {
-//                 Serial.println("\n❌ RTC not working");
-//             }
-//             break;
-            
-//         case 's':
-//         case 'S': {
-//             bool sensorState = digitalRead(WATER_SENSOR_PIN);
-//             Serial.printf("\n💧 Water Sensor: %s (%s)\n",
-//                           sensorState ? "HIGH" : "LOW",
-//                           sensorState ? "Water OK" : "Water LOW");
-//             break;
-//         }
-            
-//         case 'd':
-//         case 'D':
-//             Serial.println("\n🔧 Debug info:");
-//             Serial.printf("   Free memory: %u bytes\n", rp2040.getFreeHeap());
-//             Serial.printf("   Uptime: %lu seconds\n", millis() / 1000);
-//             Serial.printf("   All GPIO states: Sensor=%d, Pump=%d\n",
-//                           digitalRead(WATER_SENSOR_PIN),
-//                           digitalRead(PUMP_RELAY_PIN));
-//             break;
-            
-//         case 'h':
-//         case 'H':
-//         case '?':
-//             Serial.println("\n📋 Available commands:");
-//             Serial.println("   p - Test pump (3 seconds)");
-//             Serial.println("   r - Read RTC time");
-//             Serial.println("   s - Read water sensor");
-//             Serial.println("   d - Debug info");
-//             Serial.println("   h - This help");
-//             break;
-            
-//         default:
-//             if (cmd != '\n' && cmd != '\r') {
-//                 Serial.println("\n❓ Unknown command. Send 'h' for help");
-//             }
-//             break;
-//     }
-// }
-
-
-/**
- * RASPBERRY PI PICO2 WATER SYSTEM - KOD TESTOWY (NAPRAWIONY)
- * 
- * Uproszczony kod do testowania wszystkich komponentów
- * Użyj PRZED uruchomieniem głównej aplikacji
- * 
- * Test sequence:
- * 1. RTC DS3231M (DFRobot)
- * 2. SD Card (SPI)
- * 3. Water sensor (GPIO)
- * 4. Pump relay (GPIO)
- * 5. UART communication
- */
-
-#include <Arduino.h>
-#include <Wire.h>
-#include <SPI.h>
-#include <SD.h>
-#include "DFRobot_DS3231M.h"
-
-// ================= PINY PICO2 =================
-#define WATER_SENSOR_PIN    15  // GP15 - Float switch
-#define PUMP_RELAY_PIN      14  // GP14 - Relay control
-#define SD_CS_PIN           17  // GP17 - SD CS
-#define SD_MOSI_PIN         19  // GP19 - SD MOSI
-#define SD_MISO_PIN         16  // GP16 - SD MISO  
-#define SD_CLK_PIN          18  // GP18 - SD CLK
-#define RTC_SDA_PIN         4   // GP4 - RTC SDA
-#define RTC_SCL_PIN         5   // GP5 - RTC SCL
-#define UART_TX_PIN         8   // GP8 - UART TX
-#define UART_RX_PIN         9   // GP9 - UART RX
-#define LED_PIN             25  // GP25 - Built-in LED
-
-// ================= OBJEKTY =================
-DFRobot_DS3231M rtc;
-
-// ================= ZMIENNE TESTOWE =================
-bool rtcWorking = false;
-bool sdWorking = false;
-bool sensorWorking = false;
-bool pumpWorking = false;
-bool uartWorking = false;
-
-// ================= DEKLARACJE FUNKCJI =================
-void testRTC();
-void testSDCard();
-void testWaterSensor();
-void testPumpRelay();
-void testUART();
-void printTestSummary();
-void printQuickStatus();
-void handleCommand(char cmd);
-void blinkLED(int times, int delayMs = 200);
-
-// ================= SETUP I LOOP =================
-void setup() {
-    Serial.begin(115200);
-    Serial.println("Start programu");
-    // Built-in LED jako wskaźnik statusu
-    pinMode(LED_PIN, OUTPUT);
-    pinMode(PUMP_RELAY_PIN, OUTPUT);
-    // digitalWrite(LED_PIN, HIGH); // LED ON podczas boot
-    
-    // USB Serial - zwiększony timeout dla stabilności
-    // unsigned long serialStart = millis();
-    // while (!Serial && (millis() - serialStart < 15000)) {
-    //     // Miga LED podczas oczekiwania na Serial
-    //     digitalWrite(LED_PIN, (millis() / 300) % 2);
-    //     delay(50);
-    // }
-    
-    //Serial gotowy - sygnalizuj 3 szybkimi błyskami
-    // blinkLED(3, 100);
-    // digitalWrite(LED_PIN, LOW);
-    // delay(500);
-    
-    // Serial.println("\n" + String("=").substring(0, 60));
-    // Serial.println("🧪 RASPBERRY PI PICO2 WATER SYSTEM - TEST MODE");
-    // Serial.println("📋 Testing all components before main application");
-    // Serial.println(String("=").substring(0, 60));
-    // Serial.println();
-    
-    // // Debug info - pomaga z diagnozą
-    // Serial.printf("🔧 System info:\n");
-    // Serial.printf("   - Free memory: %u bytes\n", rp2040.getFreeHeap());
-    // Serial.printf("   - CPU frequency: %u MHz\n", rp2040.f_cpu() / 1000000);
-    // Serial.printf("   - Core temperature: %.1f°C\n", analogReadTemp());
-    // Serial.printf("   - Boot time: %lu ms\n", millis());
-    // Serial.println();
-    
-    // // Test wszystkich komponentów
-    // Serial.println("🚀 Starting component tests...\n");
-    
-    // testRTC();
-    // testSDCard();
-    // testWaterSensor();
-    // testPumpRelay();
-    // testUART();
-    
-    // // Podsumowanie testów
-    // printTestSummary();
-    
-    // // Sygnalizuj koniec testów
-    // if (rtcWorking && sdWorking && sensorWorking && pumpWorking) {
-    //     blinkLED(5, 150); // 5 błysków = wszystko OK
-    // } else {
-    //     blinkLED(10, 100); // 10 szybkich = problemy
-    // }
-    
-    // Serial.println("\n🔄 Starting continuous monitoring...");
-    // Serial.println("📡 Send commands: 'p'=pump, 'r'=RTC, 's'=sensor, 'h'=help");
-    // Serial.println();
-}
-
-void loop() {
-
-
-
-     while (true) {
-        // Miga LED podczas oczekiwania na Serial
-         digitalWrite(LED_PIN, HIGH);
-         digitalWrite(PUMP_RELAY_PIN, HIGH);
-         Serial.println("LED ON");
-          delay(150);
-         digitalWrite(LED_PIN, LOW);
-         digitalWrite(PUMP_RELAY_PIN, LOW);
-         Serial.println("LED OFF");
-         delay(150);
-    }
-}
-
-
-//     // LED heartbeat - puls co 2 sekundy
-//     static unsigned long lastHeartbeat = 0;
-//     if (millis() - lastHeartbeat > 2000) {
-//         lastHeartbeat = millis();
-//         digitalWrite(LED_PIN, HIGH);
-//         delay(50);
-//         digitalWrite(LED_PIN, LOW);
-//     }
-    
-//     // Status monitoring co 10 sekund
-//     static unsigned long lastStatus = 0;
-//     if (millis() - lastStatus > 10000) {
-//         lastStatus = millis();
-//         printQuickStatus();
-//     }
-    
-//     // Interactive commands
-//     if (Serial.available()) {
-//         char cmd = Serial.read();
-//         handleCommand(cmd);
-//     }
-    
-//     delay(100);
-// }
-
-// // ================= TESTY KOMPONENTÓW =================
-// /**
-//  * Test RTC DS3231M
-//  */
-// void testRTC() {
-//     Serial.println("🕒 TEST 1: RTC DS3231M (DFRobot)");
-//     Serial.println("----------------------------------------");
-    
-//     // Konfiguracja I2C
-//     Wire.setSDA(RTC_SDA_PIN);
-//     Wire.setSCL(RTC_SCL_PIN);
-//     Wire.begin();
-    
-//     Serial.printf("I2C pins: SDA=GP%d, SCL=GP%d\n", RTC_SDA_PIN, RTC_SCL_PIN);
-    
-//     // Skanowanie I2C bus dla diagnostyki
-//     Serial.print("I2C scan: ");
-//     for (byte i = 8; i < 120; i++) {
-//         Wire.beginTransmission(i);
-//         if (Wire.endTransmission() == 0) {
-//             Serial.printf("0x%02X ", i);
-//         }
-//     }
-//     Serial.println();
-    
-//     // Inicjalizacja RTC
-//     int attempts = 0;
-//     while(rtc.begin() != true && attempts < 5) {
-//         Serial.printf("RTC init attempt %d/5...\n", attempts + 1);
-//         delay(1000);
-//         attempts++;
-//     }
-    
-//     if (attempts >= 5) {
-//         Serial.println("❌ RTC DS3231M initialization FAILED");
-//         Serial.println("   Check I2C connections and power");
-//         Serial.println("   Expected I2C address: 0x68");
-//         rtcWorking = false;
-//     } else {
-//         Serial.println("✅ RTC DS3231M initialized successfully");
-        
-//         // Test odczytu czasu
-//         rtc.getNowTime();
-//         Serial.printf("📅 Current time: %04d-%02d-%02d %02d:%02d:%02d\n",
-//                       rtc.year(), rtc.month(), rtc.day(),
-//                       rtc.hour(), rtc.minute(), rtc.second());
-        
-//         // Test temperatury
-//         float temp = rtc.getTemperatureC();
-//         Serial.printf("🌡️  RTC temperature: %.2f°C\n", temp);
-        
-//         // Sprawdź czy czas się zmienia
-//         int sec1 = rtc.second();
-//         delay(1100);
-//         rtc.getNowTime();
-//         int sec2 = rtc.second();
-        
-//         if (sec1 != sec2) {
-//             Serial.println("✅ RTC time is counting");
-//             rtcWorking = true;
-//         } else {
-//             Serial.println("❌ RTC time not changing - check crystal");
-//             rtcWorking = false;
-//         }
-        
-//         if (rtc.lostPower()) {
-//             Serial.println("⚠️  RTC lost power - time may be incorrect");
-//         }
-//     }
-    
-//     Serial.println();
-// }
-
-// /**
-//  * Test karty SD - uproszczona wersja
-//  */
-// void testSDCard() {
-//     Serial.println("💾 TEST 2: MicroSD Card (SPI)");
-//     Serial.println("----------------------------------------");
-    
-//     // Konfiguracja SPI
-//     SPI.setRX(SD_MISO_PIN);
-//     SPI.setTX(SD_MOSI_PIN);
-//     SPI.setSCK(SD_CLK_PIN);
-    
-//     Serial.printf("SPI pins: MISO=GP%d, MOSI=GP%d, CLK=GP%d, CS=GP%d\n",
-//                   SD_MISO_PIN, SD_MOSI_PIN, SD_CLK_PIN, SD_CS_PIN);
-    
-//     // Test CS pin
+//     Serial.println("Configuring CS pin...");
 //     pinMode(SD_CS_PIN, OUTPUT);
 //     digitalWrite(SD_CS_PIN, HIGH);
-//     delay(100);
     
-//     // Inicjalizacja SD z retry
-//     bool sdInitialized = false;
-//     for (int attempt = 1; attempt <= 3; attempt++) {
-//         Serial.printf("SD init attempt %d/3...\n", attempt);
-//         if (SD.begin(SD_CS_PIN)) {
-//             sdInitialized = true;
-//             break;
-//         }
-//         delay(1000);
-//     }
+//     Serial.println("Attempting SD card initialization...");
     
-//     if (!sdInitialized) {
-//         Serial.println("❌ SD Card initialization FAILED");
-//         Serial.println("   Check: SD card inserted, formatted FAT32, connections");
-//         Serial.println("   Try: different SD card, check power supply");
-//         sdWorking = false;
-//     } else {
-//         Serial.println("✅ SD Card initialized successfully");
-//         Serial.println("📊 SD Card detected and accessible");
+//     if (SD.begin(SD_CS_PIN)) {
+//         Serial.println("✅ SD CARD INITIALIZED SUCCESSFULLY!");
         
-//         // Test zapisu/odczytu
-//         String testData = "Pico2 Water System Test - " + String(millis());
-//         File testFile = SD.open("/pico2_test.txt", FILE_WRITE);
+//         // Test basic operations
+//         Serial.println("Testing file operations...");
+        
+//         File testFile = SD.open("/test.txt", FILE_WRITE);
 //         if (testFile) {
-//             testFile.println(testData);
+//             testFile.println("Pico2 hardware test");
+//             testFile.printf("Timestamp: %lu\n", millis());
 //             testFile.close();
+//             Serial.println("✅ File write test OK");
             
-//             // Test odczytu
-//             testFile = SD.open("/pico2_test.txt", FILE_READ);
+//             // Read test
+//             testFile = SD.open("/test.txt");
 //             if (testFile) {
-//                 String readData = testFile.readStringUntil('\n');
-//                 testFile.close();
-//                 readData.trim();
-                
-//                 if (readData == testData) {
-//                     Serial.println("✅ SD write/read test successful");
-//                     sdWorking = true;
-//                 } else {
-//                     Serial.println("❌ SD data mismatch");
-//                     Serial.println("   Written: " + testData);
-//                     Serial.println("   Read: " + readData);
-//                     sdWorking = false;
+//                 Serial.println("✅ File read test:");
+//                 while (testFile.available()) {
+//                     Serial.print("   ");
+//                     Serial.print(testFile.readStringUntil('\n'));
 //                 }
+//                 testFile.close();
                 
 //                 // Cleanup
-//                 SD.remove("/pico2_test.txt");
-//             } else {
-//                 Serial.println("❌ SD read test FAILED");
-//                 sdWorking = false;
+//                 SD.remove("/test.txt");
+//                 Serial.println("✅ File cleanup OK");
 //             }
 //         } else {
-//             Serial.println("❌ SD write test FAILED");
-//             sdWorking = false;
+//             Serial.println("❌ File write test FAILED");
 //         }
-//     }
-    
-//     Serial.println();
-// }
-
-// /**
-//  * Test czujnika poziomu wody
-//  */
-// void testWaterSensor() {
-//     Serial.println("💧 TEST 3: Water Level Sensor (Float Switch)");
-//     Serial.println("----------------------------------------");
-    
-//     pinMode(WATER_SENSOR_PIN, INPUT_PULLUP);
-//     delay(100); // Stabilizacja
-    
-//     Serial.printf("Sensor pin: GP%d (INPUT_PULLUP)\n", WATER_SENSOR_PIN);
-//     Serial.println("Logic: LOW = water level low, HIGH = water level OK");
-    
-//     // Test stabilności przez 1 sekundę
-//     bool readings[10];
-//     Serial.print("Stability test (1s): ");
-//     for (int i = 0; i < 10; i++) {
-//         readings[i] = digitalRead(WATER_SENSOR_PIN);
-//         Serial.print(readings[i] ? "H" : "L");
-//         delay(100);
-//     }
-//     Serial.println();
-    
-//     // Sprawdź stabilność
-//     bool stable = true;
-//     bool firstReading = readings[0];
-//     for (int i = 1; i < 10; i++) {
-//         if (readings[i] != firstReading) {
-//             stable = false;
-//             break;
-//         }
-//     }
-    
-//     if (stable) {
-//         Serial.printf("✅ Sensor stable reading: %s\n", firstReading ? "WATER OK" : "WATER LOW");
-//         sensorWorking = true;
+        
 //     } else {
-//         Serial.println("⚠️  Sensor readings unstable - check connections or sensor");
-//         sensorWorking = false;
+//         Serial.println("❌ SD CARD INITIALIZATION FAILED!");
+//         Serial.println("   Check:");
+//         Serial.println("   - SD card inserted");
+//         Serial.println("   - SD card formatted as FAT32");
+//         Serial.println("   - SD card ≤ 32GB");
+//         Serial.println("   - Connections:");
+//         Serial.printf("     3V  → Pico2 3V3\n");
+//         Serial.printf("     GND → Pico2 GND\n");
+//         Serial.printf("     CLK → Pico2 GP%d\n", SD_CLK_PIN);
+//         Serial.printf("     DO  → Pico2 GP%d (MISO)\n", SD_MISO_PIN);
+//         Serial.printf("     DI  → Pico2 GP%d (MOSI)\n", SD_MOSI_PIN);
+//         Serial.printf("     CS  → Pico2 GP%d\n", SD_CS_PIN);
 //     }
-    
-//     Serial.println("🔧 Manual test: Change float position and use 's' command");
-    
-//     Serial.println();
 // }
 
-// /**
-//  * Test przekaźnika pompy
-//  */
-// void testPumpRelay() {
-//     Serial.println("⚡ TEST 4: Pump Relay Control");
-//     Serial.println("----------------------------------------");
+// void testGPIO() {
+//     Serial.println("⚡ === GPIO TEST ===");
     
-//     pinMode(PUMP_RELAY_PIN, OUTPUT);
-//     digitalWrite(PUMP_RELAY_PIN, LOW);
-//     delay(100);
+//     // Test water sensor pin
+//     pinMode(15, INPUT_PULLUP);  // GP15 - water sensor
+//     bool waterSensor = digitalRead(15);
+//     Serial.printf("Water sensor (GP15): %s (raw: %s)\n", 
+//                   waterSensor ? "WATER OK" : "WATER LOW",
+//                   waterSensor ? "HIGH" : "LOW");
     
-//     Serial.printf("Relay pin: GP%d (OUTPUT)\n", PUMP_RELAY_PIN);
-//     Serial.println("Logic: HIGH = pump ON, LOW = pump OFF");
+//     // Test pump relay pin  
+//     pinMode(14, OUTPUT);  // GP14 - pump relay
+//     Serial.println("Testing pump relay (GP14)...");
     
-//     // Test OFF state
-//     Serial.println("🔄 Testing relay OFF state...");
-//     digitalWrite(PUMP_RELAY_PIN, LOW);
+//     digitalWrite(14, LOW);
+//     Serial.println("  Pump relay: OFF (LOW)");
 //     delay(500);
-//     bool offState = digitalRead(PUMP_RELAY_PIN);
     
-//     // Test ON state  
-//     Serial.println("🔄 Testing relay ON (2 seconds)...");
-//     digitalWrite(PUMP_RELAY_PIN, HIGH);
+//     digitalWrite(14, HIGH);
+//     Serial.println("  Pump relay: ON (HIGH)");
 //     delay(500);
-//     bool onState = digitalRead(PUMP_RELAY_PIN);
-//     delay(1500); // Total 2 seconds ON
     
-//     // Test OFF again
-//     Serial.println("🔄 Testing relay OFF...");
-//     digitalWrite(PUMP_RELAY_PIN, LOW);
-//     delay(500);
-//     bool finalState = digitalRead(PUMP_RELAY_PIN);
+//     digitalWrite(14, LOW);
+//     Serial.println("  Pump relay: OFF (LOW) - test complete");
     
-//     // Verify
-//     if (!offState && onState && !finalState) {
-//         Serial.println("✅ Relay control test completed successfully");
-//         pumpWorking = true;
-//     } else {
-//         Serial.printf("❌ Relay test issue: OFF=%d, ON=%d, FINAL=%d\n", 
-//                      offState, onState, finalState);
-//         pumpWorking = false;
+//     // Test built-in LED if available
+//     #ifdef LED_BUILTIN
+//     pinMode(LED_BUILTIN, OUTPUT);
+//     Serial.println("Testing built-in LED...");
+//     for (int i = 0; i < 3; i++) {
+//         digitalWrite(LED_BUILTIN, HIGH);
+//         delay(200);
+//         digitalWrite(LED_BUILTIN, LOW);
+//         delay(200);
 //     }
+//     Serial.println("LED test complete");
+//     #endif
     
-//     Serial.println("🔧 Check if relay LED/click responds to commands");
-//     Serial.println("⚠️  Connect pump ONLY after confirming relay works safely");
-    
-//     Serial.println();
-// }
-
-// /**
-//  * Test komunikacji UART
-//  */
-// void testUART() {
-//     Serial.println("📡 TEST 5: UART Communication");
-//     Serial.println("----------------------------------------");
-    
-//     Serial1.setTX(UART_TX_PIN);
-//     Serial1.setRX(UART_RX_PIN);
-//     Serial1.begin(1200);
-//     delay(100);
-    
-//     Serial.printf("UART pins: TX=GP%d, RX=GP%d, Baud=1200\n", UART_TX_PIN, UART_RX_PIN);
-//     Serial.println("Purpose: Communication with ESP32-C6 WebServer");
-//     Serial.println("Expected: Crossed connection (Pico TX -> ESP32 RX)");
-    
-//     // Clear any existing data
-//     while (Serial1.available()) {
-//         Serial1.read();
-//     }
-    
-//     // Test wysyłania
-//     String testMessage = "{\"test\":\"pico2_ready\",\"timestamp\":" + String(millis()) + "}";
-//     Serial.println("📤 Sending test message:");
-//     Serial.println("   " + testMessage);
-//     Serial1.println(testMessage);
-//     Serial1.flush();
-    
-//     // Test odbierania z dłuższym timeout
-//     Serial.println("📥 Listening for response (5s timeout)...");
-//     unsigned long startTime = millis();
-//     String response = "";
-    
-//     while (millis() - startTime < 5000) {
-//         if (Serial1.available()) {
-//             char c = Serial1.read();
-//             response += c;
-//             if (c == '\n') break; // Complete line received
-//         }
-//         delay(10);
-//     }
-    
-//     if (response.length() > 0) {
-//         Serial.println("✅ UART response received:");
-//         Serial.println("   " + response.substring(0, min(100, (int)response.length())));
-//         uartWorking = true;
-//     } else {
-//         Serial.println("⚠️  No UART response (normal if ESP32-C6 not connected)");
-//         Serial.println("   This is not an error - just no device connected");
-//         uartWorking = false;  // Not an error, just not connected
-//     }
-    
-//     Serial.println();
-// }
-
-// // ================= POMOCNICZE =================
-// /**
-//  * Podsumowanie testów
-//  */
-// void printTestSummary() {
-//     Serial.println(String("=").substring(0, 60));
-//     Serial.println("📊 TEST SUMMARY");
-//     Serial.println(String("=").substring(0, 60));
-    
-//     Serial.printf("🕒 RTC DS3231M:      %s\n", rtcWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("💾 SD Card:          %s\n", sdWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("💧 Water Sensor:     %s\n", sensorWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("⚡ Pump Relay:       %s\n", pumpWorking ? "✅ OK" : "❌ FAIL");
-//     Serial.printf("📡 UART Comm:        %s\n", uartWorking ? "✅ OK" : "⚠️  NO ESP32-C6");
-    
-//     Serial.println();
-    
-//     int criticalComponents = rtcWorking + sdWorking + sensorWorking + pumpWorking;
-    
-//     if (criticalComponents >= 4) {
-//         Serial.println("🎉 SYSTEM READY FOR MAIN APPLICATION!");
-//         Serial.println("   All critical components working");
-//         Serial.println("   You can now upload the main water system code");
-//     } else {
-//         Serial.println("⚠️  SOME CRITICAL COMPONENTS NEED ATTENTION");
-//         Serial.println("   Fix hardware issues before deploying main application");
-//         Serial.println("   Required: RTC + SD + Sensor + Pump Relay");
-//     }
-    
-//     Serial.println(String("=").substring(0, 60));
-//     Serial.println();
-// }
-
-// /**
-//  * Szybki status (continuous monitoring)
-//  */
-// void printQuickStatus() {
-//     // Current time
-//     String timeStr = "No RTC";
-//     if (rtcWorking) {
-//         rtc.getNowTime();
-//         char buffer[20];
-//         sprintf(buffer, "%02d:%02d:%02d", rtc.hour(), rtc.minute(), rtc.second());
-//         timeStr = String(buffer);
-//     }
-    
-//     // Water sensor
-//     bool waterLevel = digitalRead(WATER_SENSOR_PIN);
-    
-//     // Memory and uptime
-//     uint32_t freeHeap = rp2040.getFreeHeap();
-//     unsigned long uptimeMin = millis() / 60000;
-    
-//     Serial.printf("[MONITOR] Time:%s Water:%s Memory:%uKB Uptime:%lum Temp:%.1f°C\n",
-//                   timeStr.c_str(),
-//                   waterLevel ? "OK" : "LOW",
-//                   freeHeap / 1024,
-//                   uptimeMin,
-//                   analogReadTemp());
-// }
-
-// /**
-//  * Obsługa komend interaktywnych - naprawiona
-//  */
-// void handleCommand(char cmd) {
-//     switch (cmd) {
-//         case 'p':
-//         case 'P':
-//             Serial.println("\n🔄 Manual pump test (3 seconds):");
-//             Serial.println("   ⚠️  ENSURE PUMP IS SAFELY CONNECTED!");
-//             digitalWrite(PUMP_RELAY_PIN, HIGH);
-//             digitalWrite(LED_PIN, HIGH);
-//             Serial.println("   Pump/Relay ON");
-//             delay(3000);
-//             digitalWrite(PUMP_RELAY_PIN, LOW);
-//             digitalWrite(LED_PIN, LOW);
-//             Serial.println("   Pump/Relay OFF");
-//             break;
-            
-//         case 'r':
-//         case 'R':
-//             if (rtcWorking) {
-//                 rtc.getNowTime();
-//                 Serial.printf("\n🕒 RTC Reading: %04d-%02d-%02d %02d:%02d:%02d (%.2f°C)\n",
-//                               rtc.year(), rtc.month(), rtc.day(),
-//                               rtc.hour(), rtc.minute(), rtc.second(),
-//                               rtc.getTemperatureC());
-//             } else {
-//                 Serial.println("\n❌ RTC not working - run full test first");
-//             }
-//             break;
-            
-//         case 's':
-//         case 'S': {
-//             // Test sensor several times
-//             Serial.println("\n💧 Water Sensor Reading:");
-//             for (int i = 0; i < 5; i++) {
-//                 bool state = digitalRead(WATER_SENSOR_PIN);
-//                 Serial.printf("   Reading %d: %s (%s)\n", i+1,
-//                               state ? "HIGH" : "LOW",
-//                               state ? "Water OK" : "Water LOW");
-//                 delay(200);
-//             }
-//             break;
-//         }
-            
-//         case 'd':
-//         case 'D':
-//             Serial.println("\n🔧 Debug info:");
-//             Serial.printf("   Free memory: %u bytes (%.1f KB)\n", 
-//                          rp2040.getFreeHeap(), rp2040.getFreeHeap()/1024.0);
-//             Serial.printf("   Uptime: %lu seconds\n", millis() / 1000);
-//             Serial.printf("   Core temp: %.2f°C\n", analogReadTemp());
-//             Serial.printf("   GPIO states: Sensor=%d, Pump=%d, LED=%d\n",
-//                           digitalRead(WATER_SENSOR_PIN),
-//                           digitalRead(PUMP_RELAY_PIN),
-//                           digitalRead(LED_PIN));
-//             break;
-            
-//         case 't':
-//         case 'T':
-//             Serial.println("\n🔄 Re-running all tests...");
-//             testRTC();
-//             testSDCard();
-//             testWaterSensor();
-//             testPumpRelay();
-//             testUART();
-//             printTestSummary();
-//             break;
-            
-//         case 'l':
-//         case 'L':
-//             blinkLED(5, 200);
-//             Serial.println("\n💡 LED blink test completed");
-//             break;
-            
-//         case 'h':
-//         case 'H':
-//         case '?':
-//             Serial.println("\n📋 Available commands:");
-//             Serial.println("   p - Test pump (3 seconds) ⚠️ SAFETY!");
-//             Serial.println("   r - Read RTC time");
-//             Serial.println("   s - Read water sensor (5x)");
-//             Serial.println("   d - Debug info");
-//             Serial.println("   t - Re-run all tests");
-//             Serial.println("   l - LED blink test");
-//             Serial.println("   h - This help");
-//             break;
-            
-//         default:
-//             if (cmd != '\n' && cmd != '\r') {
-//                 Serial.println("\n❓ Unknown command. Send 'h' for help");
-//             }
-//             break;
-//     }
-// }
-
-// /**
-//  * Helper - miganie LED
-//  */
-// void blinkLED(int times, int delayMs) {
-//     for (int i = 0; i < times; i++) {
-//         digitalWrite(LED_PIN, HIGH);
-//         delay(delayMs);
-//         digitalWrite(LED_PIN, LOW);
-//         delay(delayMs);
-//     }
+//     Serial.println("✅ GPIO test complete");
 // }
