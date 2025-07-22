@@ -1,18 +1,17 @@
-#ifndef WEB_TEMPLATES_H
-#define WEB_TEMPLATES_H
+#ifndef TEMPLATES_H
+#define TEMPLATES_H
 
-#include <Arduino.h>
+#include <ESPAsyncWebServer.h>
 
-// ================= HTML TEMPLATES =================
-extern const char* LOGIN_PAGE_HTML;
-extern const char* DASHBOARD_PAGE_HTML;
-extern const char* DASHBOARD_PAGE_END;
+void handleDashboard(AsyncWebServerRequest* request);
+void handleLoginPage(AsyncWebServerRequest* request);
+void handleSettingsPage(AsyncWebServerRequest* request);
 
-// ================= JAVASCRIPT =================
-extern const char* DASHBOARD_JS;
-
-// ================= FUNKCJE POMOCNICZE =================
-String getCompleteDashboardPage();
-String get404Page();
+String getDashboardHTML();
+String getLoginHTML();
+String getSettingsHTML();
 
 #endif
+
+
+

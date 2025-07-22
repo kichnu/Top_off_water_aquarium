@@ -1,20 +1,11 @@
-#ifndef SECURITY_AUTH_H
-#define SECURITY_AUTH_H
+#ifndef AUTH_H
+#define AUTH_H
 
-#include <ESPAsyncWebServer.h>
-#include "../config.h"
+#include <Arduino.h>
 
-// ================= FUNKCJE AUTORYZACJI =================
-bool checkAuthentication(AsyncWebServerRequest* request);
+void initializeAuth();
 bool verifyPassword(const String& password);
-bool isIPAllowed(IPAddress ip);
-
-// ================= OBSŁUGA LOGOWANIA =================
-bool processLogin(AsyncWebServerRequest* request);
-void processLogout(AsyncWebServerRequest* request);
-
-// ================= ZMIENNE GLOBALNE =================
-extern bool authenticationEnabled;
-extern unsigned long lastAuthCheck;
+String hashPassword(const String& password);
+bool isPasswordValid(const String& password);
 
 #endif

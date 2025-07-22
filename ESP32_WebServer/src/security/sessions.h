@@ -1,31 +1,22 @@
-#ifndef SECURITY_SESSIONS_H
-#define SECURITY_SESSIONS_H
+#ifndef SESSIONS_H
+#define SESSIONS_H
 
 #include <Arduino.h>
-#include <IPAddress.h>
-#include "../config.h"
+#include <WiFi.h>
 
-// ================= STRUKTURY SESJI =================
-struct SessionInfo {
+struct Session {
     String token;
     IPAddress ip;
-    unsigned long createdAt;
-    unsigned long lastActivity;
-    bool isValid;
+    unsigned long created_at;
+    unsigned long last_activity;
+    bool is_valid;
 };
 
-// ================= FUNKCJE SESJI =================
 void initializeSessions();
+void updateSessions();
 String createSession(IPAddress ip);
-SessionInfo* findSessionByToken(const String& token);
-void removeSession(const String& token);
-void cleanupExpiredSessions();
-int getActiveSessionCount();
-String generateSessionToken();
-
-// ================= ZMIENNE GLOBALNE =================
-extern SessionInfo sessions[];
-extern int sessionCount;
-extern unsigned long lastSessionCleanup;
+bool validateSession(const String& token, IPAddress ip);
+void destroySession(const String& token);
+void clearExpiredSessions();
 
 #endif

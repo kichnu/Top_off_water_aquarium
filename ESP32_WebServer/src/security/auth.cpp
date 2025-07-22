@@ -1,125 +1,49 @@
 #include "auth.h"
-#include "sessions.h"
-#include "ratelimit.h"
+#include "../config/settings.h"
 #include "../core/logging.h"
+#include <mbedtls/md.h>
 
-// ================= ZMIENNE GLOBALNE =================
-bool authenticationEnabled = true;
-unsigned long lastAuthCheck = 0;
-
-// ================= IMPLEMENTACJE =================
-
-/**
- * Sprawdź czy IP jest na liście dozwolonych
- */
-bool isIPAllowed(IPAddress ip) {
-    for (int i = 0; i < ALLOWED_IPS_COUNT; i++) {
-        if (ALLOWED_IPS[i] == ip) {
-            return true;
-        }
-    }
-    return false;
+void initializeAuth() {
+    LOG_INFO("Authentication system initialized");
 }
 
-/**
- * Sprawdź poprawność hasła
- */
+String hashPassword(const String& password) {
+    byte hash[32];
+    
+    mbedtls_md_context_t ctx;
+    mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
+    
+    mbedtls_md_init(&ctx);
+    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 0);
+    mbedtls_md_starts(&ctx);
+    mbedtls_md_update(&ctx, (const unsigned char*)password.c_str(), password.length());
+    mbedtls_md_finish(&ctx, hash);
+    mbedtls_md_free(&ctx);
+    
+    String hashString = "";
+    for (int i = 0; i < 32; i++) {
+        char str[3];
+        sprintf(str, "%02x", (int)hash[i]);
+        hashString += str;
+    }
+    
+    return hashString;
+}
+
 bool verifyPassword(const String& password) {
-    return (password == ADMIN_PASSWORD);
-}
-
-/**
- * Sprawdź uwierzytelnienie (IP + sesja)
- */
-bool checkAuthentication(AsyncWebServerRequest* request) {
-    IPAddress clientIP = request->client()->remoteIP();
+    String inputHash = hashPassword(password);
+    String storedHash = getAdminPasswordHash();
     
-    // Sprawdź IP whitelist - TYMCZASOWO WYŁĄCZONE
-    #if ENABLE_IP_WHITELIST
-    if (!isIPAllowed(clientIP)) {
-        logSecurityEvent("Dostęp odrzucony - IP nie na whitelist", clientIP);
-        return false;
-    }
-    #endif
-    
-    // Sprawdź rate limiting
-    if (!checkRateLimit(clientIP)) {
-        return false;
-    }
-    
-    // Sprawdź cookie z tokenem sesji
-    if (request->hasHeader("Cookie")) {
-        String cookies = request->getHeader("Cookie")->value();
-        int sessionStart = cookies.indexOf("session=");
-        if (sessionStart != -1) {
-            sessionStart += 8; // długość "session="
-            int sessionEnd = cookies.indexOf(";", sessionStart);
-            if (sessionEnd == -1) sessionEnd = cookies.length();
-            
-            String sessionToken = cookies.substring(sessionStart, sessionEnd);
-            SessionInfo* session = findSessionByToken(sessionToken);
-            
-            if (session != nullptr && session->ip == clientIP) {
-                return true;
-            }
-        }
-    }
-    
-    return false;
-}
-
-/**
- * Przetwórz żądanie logowania
- */
-bool processLogin(AsyncWebServerRequest* request) {
-    IPAddress clientIP = request->client()->remoteIP();
-    
-    // Sprawdź IP whitelist - TYMCZASOWO WYŁĄCZONE
-    #if ENABLE_IP_WHITELIST
-    if (!isIPAllowed(clientIP)) {
-        logSecurityEvent("Logowanie odrzucone - IP nie na whitelist", clientIP);
-        return false;
-    }
-    #endif
-    
-    if (!checkRateLimit(clientIP)) {
-        return false;
-    }
-    
-    String password = "";
-    if (request->hasParam("password", true)) {
-        password = request->getParam("password", true)->value();
-    }
-    
-    if (verifyPassword(password)) {
-        Serial.printf("[AUTH] ✅ Pomyślne logowanie z IP %s\n", clientIP.toString().c_str());
-        resetFailedAttempts(clientIP);
-        return true;
+    bool valid = (inputHash == storedHash);
+    if (valid) {
+        LOG_INFO("Password verification successful");
     } else {
-        Serial.printf("[AUTH] ❌ Błędne hasło z IP %s\n", clientIP.toString().c_str());
-        recordFailedLogin(clientIP);
-        return false;
+        LOG_WARNING("Password verification failed");
     }
+    
+    return valid;
 }
 
-/**
- * Przetwórz żądanie wylogowania
- */
-void processLogout(AsyncWebServerRequest* request) {
-    IPAddress clientIP = request->client()->remoteIP();
-    Serial.printf("[AUTH] Wylogowanie IP %s\n", clientIP.toString().c_str());
-    
-    if (request->hasHeader("Cookie")) {
-        String cookies = request->getHeader("Cookie")->value();
-        
-        int sessionStart = cookies.indexOf("session=");
-        if (sessionStart != -1) {
-            sessionStart += 8;
-            int sessionEnd = cookies.indexOf(";", sessionStart);
-            if (sessionEnd == -1) sessionEnd = cookies.length();
-            
-            String sessionToken = cookies.substring(sessionStart, sessionEnd);
-            removeSession(sessionToken);
-        }
-    }
+bool isPasswordValid(const String& password) {
+    return password.length() >= 6; // Minimum 6 characters
 }

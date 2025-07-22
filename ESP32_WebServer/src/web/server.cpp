@@ -1,191 +1,79 @@
 #include "server.h"
 #include "api.h"
 #include "templates.h"
-#include "../security/auth.h"
 #include "../security/sessions.h"
-#include "../network/ntp.h"
+#include "../security/ratelimit.h"
+#include "../config/network_security.h"
 #include "../core/logging.h"
 
-// ================= ZMIENNE GLOBALNE =================
-AsyncWebServer server(80);  // HTTP na porcie 80
-bool serverRunning = false;
-unsigned long serverStartTime = 0;
+AsyncWebServer server(80);
 
-// ================= IMPLEMENTACJE =================
-
-/**
- * Inicjalizacja serwera web
- */
 void initializeWebServer() {
     setupRoutes();
-    LOG_INFO_MSG("WEBSERVER", "Serwer web zainicjalizowany");
-}
-
-/**
- * Uruchomienie serwera
- */
-void startWebServer() {
+    
     server.begin();
-    serverRunning = true;
-    serverStartTime = millis();
+    LOG_INFO("Web server started on port 80");
+}
+
+bool checkAuthentication(AsyncWebServerRequest* request) {
+    IPAddress client_ip = request->client()->remoteIP();
     
-    Serial.println("[SERVER] ✅ Serwer HTTP uruchomiony na porcie 80");
-    Serial.printf("[SERVER] Dostęp: http://%s\n", WiFi.localIP().toString().c_str());
-    
-    // Wyświetl dozwolone IP (jeśli włączone)
-    #if ENABLE_IP_WHITELIST
-    Serial.println("[SECURITY] Dozwolone adresy IP:");
-    for (int i = 0; i < ALLOWED_IPS_COUNT; i++) {
-        Serial.printf("  - %s\n", ALLOWED_IPS[i].toString().c_str());
+    // Check if IP is blocked
+    if (isIPBlocked(client_ip)) {
+        LOG_WARNING("Blocked IP attempted access: %s", client_ip.toString().c_str());
+        return false;
     }
-    #endif
     
-    LOG_INFO_MSG("WEBSERVER", "Serwer HTTP uruchomiony");
-}
-
-/**
- * Zatrzymanie serwera
- */
-void stopWebServer() {
-    server.end();
-    serverRunning = false;
-    LOG_INFO_MSG("WEBSERVER", "Serwer HTTP zatrzymany");
-}
-
-/**
- * Konfiguracja tras serwera
- */
-void setupRoutes() {
-    Serial.println("[SERVER] Konfigurowanie endpointów...");
-    
-    // ================= GŁÓWNA STRONA =================
-    server.on("/", HTTP_GET, handleRoot);
-    
-    // ================= LOGOWANIE I WYLOGOWANIE =================
-    server.on("/login", HTTP_POST, handleLogin);
-    server.on("/logout", HTTP_POST, handleLogout);
-    
-    // ================= API ROUTES =================
-    setupAPIRoutes();
-    
-    // ================= 404 HANDLER =================
-    server.onNotFound(handleNotFound);
-}
-
-/**
- * Obsługa głównej strony
- */
-void handleRoot(AsyncWebServerRequest* request) {
-    IPAddress clientIP = request->client()->remoteIP();
-    
-    // Sprawdź IP whitelist - TYMCZASOWO WYŁĄCZONE
-    #if ENABLE_IP_WHITELIST
-    if (!isIPAllowed(clientIP)) {
-        logSecurityEvent("Dostęp odrzucony - IP nie na whitelist", clientIP);
-        request->send(403, "text/plain", "Access Denied");
-        return;
+    // Check rate limiting
+    if (isRateLimited(client_ip)) {
+        LOG_WARNING("Rate limited IP: %s", client_ip.toString().c_str());
+        recordFailedAttempt(client_ip);
+        return false;
     }
-    #endif
     
-    // Sprawdź czy użytkownik ma już ważną sesję
-    bool hasValidSession = false;
+    // Record this request
+    recordRequest(client_ip);
+    
+    // Check session
     if (request->hasHeader("Cookie")) {
-        String cookies = request->getHeader("Cookie")->value();
-        
-        int sessionStart = cookies.indexOf("session=");
-        if (sessionStart != -1) {
-            sessionStart += 8;
-            int sessionEnd = cookies.indexOf(";", sessionStart);
-            if (sessionEnd == -1) sessionEnd = cookies.length();
+        String cookie = request->getHeader("Cookie")->value();
+        int token_start = cookie.indexOf("session_token=");
+        if (token_start != -1) {
+            token_start += 14; // Length of "session_token="
+            int token_end = cookie.indexOf(";", token_start);
+            if (token_end == -1) token_end = cookie.length();
             
-            String sessionToken = cookies.substring(sessionStart, sessionEnd);
-            SessionInfo* session = findSessionByToken(sessionToken);
-            if (session != nullptr && session->ip == clientIP) {
-                hasValidSession = true;
+            String token = cookie.substring(token_start, token_end);
+            if (validateSession(token, client_ip)) {
+                return true;
             }
         }
     }
     
-    if (hasValidSession) {
-        // Użytkownik ma ważną sesję - pokaż dashboard
-        String completePage = getCompleteDashboardPage();
-        request->send(200, "text/html", completePage);
-    } else {
-        // Brak sesji - pokaż login
-        request->send(200, "text/html", LOGIN_PAGE_HTML);
-    }
+    recordFailedAttempt(client_ip);
+    return false;
 }
 
-/**
- * Obsługa logowania
- */
-void handleLogin(AsyncWebServerRequest* request) {
-    IPAddress clientIP = request->client()->remoteIP();
+void setupRoutes() {
+    // Static pages
+    server.on("/", HTTP_GET, handleDashboard);
+    server.on("/login", HTTP_GET, handleLoginPage);
+    server.on("/settings", HTTP_GET, handleSettingsPage);
     
-    if (processLogin(request)) {
-        // Logowanie pomyślne
-        String sessionToken = createSession(clientIP);
-        String completePage = getCompleteDashboardPage();
-        
-        // Ustaw cookie z sesją używając prawdziwego czasu Unix
-        String cookieHeader;
-        if (isNTPSynced()) {
-            // Użyj Unix timestamp + SESSION_TIMEOUT
-            time_t expireTime = time(nullptr) + (SESSION_TIMEOUT / 1000);
-            struct tm* expireTimeInfo = gmtime(&expireTime);
-            
-            char expireString[64];
-            strftime(expireString, sizeof(expireString), "%a, %d %b %Y %H:%M:%S GMT", expireTimeInfo);
-            
-            cookieHeader = "session=" + sessionToken + "; Path=/; Expires=" + String(expireString) + "; SameSite=Lax";
-            Serial.printf("[AUTH] Cookie z NTP: expires %s\n", expireString);
-        } else {
-            // Fallback: session cookie (bez expiration)
-            cookieHeader = "session=" + sessionToken + "; Path=/; SameSite=Lax";
-            Serial.println("[AUTH] Cookie fallback: session cookie (brak NTP)");
-        }
-        
-        AsyncWebServerResponse* response = request->beginResponse(200, "text/html", completePage);
-        response->addHeader("Set-Cookie", cookieHeader);
-        request->send(response);
-    } else {
-        // Logowanie nieudane
-        request->send(401, "text/html", LOGIN_PAGE_HTML);
-    }
-}
-
-/**
- * Obsługa wylogowania
- */
-void handleLogout(AsyncWebServerRequest* request) {
-    processLogout(request);
+    // Authentication
+    server.on("/api/login", HTTP_POST, handleLogin);
+    server.on("/api/logout", HTTP_POST, handleLogout);
     
-    AsyncWebServerResponse* response = request->beginResponse(200, "text/plain", "Logged out");
+    // API endpoints
+    server.on("/api/status", HTTP_GET, handleStatus);
+    server.on("/api/pump/manual-normal", HTTP_POST, handleManualPumpNormal);
+    server.on("/api/pump/manual-1min", HTTP_POST, handleManualPump1Min);
+    server.on("/api/settings", HTTP_GET, handleGetSettings);
+    server.on("/api/settings", HTTP_POST, handleUpdateSettings);
     
-    // Wyczyść cookie używając prawidłowego formatu
-    if (isNTPSynced()) {
-        time_t pastTime = time(nullptr) - 86400; // 24 godziny temu
-        struct tm* pastTimeInfo = gmtime(&pastTime);
-        char expireString[64];
-        strftime(expireString, sizeof(expireString), "%a, %d %b %Y %H:%M:%S GMT", pastTimeInfo);
-        response->addHeader("Set-Cookie", "session=; Path=/; Expires=" + String(expireString) + "; SameSite=Lax");
-    } else {
-        response->addHeader("Set-Cookie", "session=; Path=/; Max-Age=0; SameSite=Lax");
-    }
-    
-    request->send(response);
-}
-
-/**
- * Obsługa 404 Not Found
- */
-void handleNotFound(AsyncWebServerRequest* request) {
-    IPAddress clientIP = request->client()->remoteIP();
-    Serial.printf("[HTTP] 404 - %s %s od %s\n", 
-                 request->methodToString(), 
-                 request->url().c_str(), 
-                 clientIP.toString().c_str());
-    
-    String message = get404Page();
-    request->send(404, "text/html", message);
+    // 404 handler
+    server.onNotFound([](AsyncWebServerRequest* request) {
+        LOG_WARNING("404 - Path not found: %s", request->url().c_str());
+        request->send(404, "text/plain", "Not Found");
+    });
 }

@@ -1,151 +1,94 @@
 #include "sessions.h"
+#include "../config/network_security.h"
 #include "../core/logging.h"
+#include <vector>
+#include <vector>
+#include <map>
 
-// ================= ZMIENNE GLOBALNE =================
-SessionInfo sessions[MAX_SESSIONS];
-int sessionCount = 0;
-unsigned long lastSessionCleanup = 0;
+static std::vector<Session> active_sessions;
 
-// ================= IMPLEMENTACJE =================
-
-/**
- * Inicjalizacja systemu sesji
- */
 void initializeSessions() {
-    sessionCount = 0;
-    lastSessionCleanup = millis();
-    
-    // Wyczyść wszystkie sesje
-    for (int i = 0; i < MAX_SESSIONS; i++) {
-        sessions[i].isValid = false;
-        sessions[i].token = "";
-        sessions[i].ip = IPAddress(0, 0, 0, 0);
-        sessions[i].createdAt = 0;
-        sessions[i].lastActivity = 0;
-    }
-    
-    LOG_INFO_MSG("SESSIONS", "System sesji zainicjalizowany");
+    active_sessions.clear();
+    LOG_INFO("Session management initialized");
 }
 
-/**
- * Generuj losowy token sesji
- */
-String generateSessionToken() {
+void updateSessions() {
+    clearExpiredSessions();
+}
+
+String generateToken() {
     String token = "";
-    const char chars[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     
-    for (int i = 0; i < 32; i++) {
-        token += chars[random(0, 62)];
+    for (int i = 0; i < SESSION_TOKEN_LENGTH; i++) {
+        token += charset[random(0, strlen(charset))];
     }
     
     return token;
 }
 
-/**
- * Utwórz nową sesję
- */
 String createSession(IPAddress ip) {
-    String token = generateSessionToken();
-    unsigned long now = millis();
-    
-    // Znajdź wolne miejsce lub najstarszą sesję
-    int index = -1;
-    if (sessionCount < MAX_SESSIONS) {
-        index = sessionCount++;
-    } else {
-        // Znajdź najstarszą sesję
-        unsigned long oldestTime = sessions[0].lastActivity;
-        index = 0;
-        for (int i = 1; i < MAX_SESSIONS; i++) {
-            if (sessions[i].lastActivity < oldestTime) {
-                oldestTime = sessions[i].lastActivity;
-                index = i;
-            }
+    // Remove existing sessions for this IP
+    for (auto it = active_sessions.begin(); it != active_sessions.end();) {
+        if (it->ip == ip) {
+            it = active_sessions.erase(it);
+        } else {
+            ++it;
         }
     }
     
-    // Utwórz sesję
-    sessions[index].token = token;
-    sessions[index].ip = ip;
-    sessions[index].createdAt = now;
-    sessions[index].lastActivity = now;
-    sessions[index].isValid = true;
+    Session new_session;
+    new_session.token = generateToken();
+    new_session.ip = ip;
+    new_session.created_at = millis();
+    new_session.last_activity = millis();
+    new_session.is_valid = true;
     
-    return token;
+    active_sessions.push_back(new_session);
+    
+    LOG_INFO("Session created for IP %s, token: %s", ip.toString().c_str(), new_session.token.c_str());
+    
+    return new_session.token;
 }
 
-/**
- * Znajdź sesję po tokenie
- */
-SessionInfo* findSessionByToken(const String& token) {
-    unsigned long now = millis();
-    
-    for (int i = 0; i < sessionCount; i++) {
-        if (sessions[i].isValid && sessions[i].token == token) {
-            // Sprawdź czy sesja nie wygasła
-            if (now - sessions[i].lastActivity < SESSION_TIMEOUT) {
-                sessions[i].lastActivity = now;  // Odśwież aktywność
-                return &sessions[i];
-            } else {
-                // Sesja wygasła
-                sessions[i].isValid = false;
-                return nullptr;
+bool validateSession(const String& token, IPAddress ip) {
+    for (auto& session : active_sessions) {
+        if (session.token == token && session.ip == ip && session.is_valid) {
+            // Check timeout
+            if (millis() - session.last_activity > SESSION_TIMEOUT_MS) {
+                session.is_valid = false;
+                LOG_INFO("Session expired for IP %s", ip.toString().c_str());
+                return false;
             }
+            
+            // Update last activity
+            session.last_activity = millis();
+            return true;
         }
     }
-    return nullptr;
+    
+    return false;
 }
 
-/**
- * Usuń sesję
- */
-void removeSession(const String& token) {
-    for (int i = 0; i < sessionCount; i++) {
-        if (sessions[i].token == token) {
-            sessions[i].isValid = false;
+void destroySession(const String& token) {
+    for (auto it = active_sessions.begin(); it != active_sessions.end(); ++it) {
+        if (it->token == token) {
+            LOG_INFO("Session destroyed for IP %s", it->ip.toString().c_str());
+            active_sessions.erase(it);
             break;
         }
     }
 }
 
-/**
- * Wyczyść wygasłe sesje
- */
-void cleanupExpiredSessions() {
-    unsigned long now = millis();
-    int cleanedSessions = 0;
-    
-    for (int i = 0; i < sessionCount; i++) {
-        if (!sessions[i].isValid || 
-            (now - sessions[i].lastActivity) > SESSION_TIMEOUT) {
-            if (sessions[i].isValid) {
-                sessions[i].isValid = false;
-                cleanedSessions++;
-            }
-        }
-    }
-    
-    if (cleanedSessions > 0) {
-        char buffer[64];
-        snprintf(buffer, sizeof(buffer), "Wyczyszczono %d wygasłych sesji", cleanedSessions);
-        LOG_INFO_MSG("SESSIONS", buffer);
-    }
-    
-    lastSessionCleanup = now;
-}
-
-/**
- * Pobierz liczbę aktywnych sesji
- */
-int getActiveSessionCount() {
-    int activeSessions = 0;
+void clearExpiredSessions() {
     unsigned long now = millis();
     
-    for (int i = 0; i < sessionCount; i++) {
-        if (sessions[i].isValid && (now - sessions[i].lastActivity) < SESSION_TIMEOUT) {
-            activeSessions++;
+    for (auto it = active_sessions.begin(); it != active_sessions.end();) {
+        if (!it->is_valid || (now - it->last_activity > SESSION_TIMEOUT_MS)) {
+            LOG_DEBUG("Removing expired session for IP %s", it->ip.toString().c_str());
+            it = active_sessions.erase(it);
+        } else {
+            ++it;
         }
     }
-    
-    return activeSessions;
 }

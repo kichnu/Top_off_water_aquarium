@@ -1,126 +1,60 @@
 #include "wifi.h"
+#include "../config/settings.h"
 #include "../core/logging.h"
-#include "ntp.h"
+#include <WiFi.h>
 
-// ================= ZMIENNE GLOBALNE =================
-WiFiStatus wifiStatus = {false, IPAddress(0,0,0,0), IPAddress(0,0,0,0), IPAddress(0,0,0,0), 0, 0};
-unsigned long lastWiFiReconnect = 0;
-int wifiReconnectAttempts = 0;
+static unsigned long last_connection_attempt = 0;
+static const unsigned long RECONNECT_INTERVAL = 30000; // 30 seconds
 
-// ================= IMPLEMENTACJE =================
-
-/**
- * Inicjalizacja WiFi
- */
 void initializeWiFi() {
-    Serial.println("\n[WIFI] Rozpoczynanie połączenia WiFi...");
-    Serial.printf("[WIFI] SSID: %s\n", WIFI_SSID);
-    
     WiFi.mode(WIFI_STA);
-    connectWiFi();
-}
-
-/**
- * Nawiązanie połączenia WiFi
- */
-bool connectWiFi() {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    
+    String ssid = getWiFiSSID();
+    String password = getWiFiPassword();
+    
+    LOG_INFO("Connecting to WiFi: %s", ssid.c_str());
+    
+    WiFi.begin(ssid.c_str(), password.c_str());
     
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-        delay(1000);
-        Serial.print(".");
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        LOG_DEBUG("WiFi connecting... attempt %d", attempts + 1);
         attempts++;
-        
-        if (attempts % 10 == 0) {
-            Serial.printf("\n[WIFI] Próba %d/30...\n", attempts);
-        }
     }
     
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\n[WIFI] ✅ Połączono z WiFi!");
-        Serial.printf("[WIFI] IP: %s\n", WiFi.localIP().toString().c_str());
-        Serial.printf("[WIFI] Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
-        Serial.printf("[WIFI] DNS: %s\n", WiFi.dnsIP().toString().c_str());
-        Serial.printf("[WIFI] RSSI: %d dBm\n", WiFi.RSSI());
-        
-        // Aktualizuj status
-        wifiStatus.connected = true;
-        wifiStatus.localIP = WiFi.localIP();
-        wifiStatus.gateway = WiFi.gatewayIP();
-        wifiStatus.dns = WiFi.dnsIP();
-        wifiStatus.rssi = WiFi.RSSI();
-        wifiStatus.lastCheck = millis();
-        
-        // Uruchom synchronizację NTP
-        initializeNTP();
-        
-        return true;
+        LOG_INFO("WiFi connected successfully");
+        LOG_INFO("IP address: %s", WiFi.localIP().toString().c_str());
+        LOG_INFO("Gateway: %s", WiFi.gatewayIP().toString().c_str());
+        LOG_INFO("DNS: %s", WiFi.dnsIP().toString().c_str());
     } else {
-        Serial.println("\n[WIFI] ❌ Nie udało się połączyć z WiFi!");
-        Serial.println("[WIFI] Sprawdź SSID i hasło, restartowanie za 10 sekund...");
-        wifiStatus.connected = false;
-        delay(10000);
-        ESP.restart();
-        return false;
+        LOG_ERROR("WiFi connection failed");
     }
 }
 
-/**
- * Sprawdź połączenie WiFi
- */
-void checkWiFiConnection() {
+void updateWiFi() {
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[WIFI] ❌ Utracono połączenie WiFi, próba ponownego połączenia...");
-        wifiStatus.connected = false;
-        reconnectWiFi();
-    } else {
-        // Aktualizuj status
-        wifiStatus.rssi = WiFi.RSSI();
-        wifiStatus.lastCheck = millis();
+        unsigned long now = millis();
+        if (now - last_connection_attempt > RECONNECT_INTERVAL) {
+            LOG_WARNING("WiFi disconnected, attempting reconnection");
+            WiFi.reconnect();
+            last_connection_attempt = now;
+        }
     }
 }
 
-/**
- * Ponowne połączenie WiFi
- */
-void reconnectWiFi() {
-    unsigned long now = millis();
-    
-    // Nie próbuj zbyt często
-    if (now - lastWiFiReconnect < 30000) {
-        return;
-    }
-    
-    lastWiFiReconnect = now;
-    wifiReconnectAttempts++;
-    
-    Serial.printf("[WIFI] Próba ponownego połączenia #%d\n", wifiReconnectAttempts);
-    
-    // Po 5 próbach zrestartuj ESP
-    if (wifiReconnectAttempts >= 5) {
-        Serial.println("[WIFI] Zbyt wiele nieudanych prób, restart...");
-        ESP.restart();
-    }
-    
-    connectWiFi();
-}
-
-/**
- * Pobierz status WiFi
- */
-WiFiStatus getWiFiStatus() {
-    wifiStatus.connected = (WiFi.status() == WL_CONNECTED);
-    if (wifiStatus.connected) {
-        wifiStatus.rssi = WiFi.RSSI();
-        wifiStatus.lastCheck = millis();
-    }
-    return wifiStatus;
-}
-
-/**
- * Sprawdź czy WiFi jest połączone
- */
 bool isWiFiConnected() {
-    return (WiFi.status() == WL_CONNECTED);
+    return WiFi.status() == WL_CONNECTED;
+}
+
+String getWiFiStatus() {
+    switch (WiFi.status()) {
+        case WL_CONNECTED: return "Connected";
+        case WL_NO_SSID_AVAIL: return "SSID not available";
+        case WL_CONNECT_FAILED: return "Connection failed";
+        case WL_CONNECTION_LOST: return "Connection lost";
+        case WL_DISCONNECTED: return "Disconnected";
+        default: return "Unknown";
+    }
 }

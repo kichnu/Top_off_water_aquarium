@@ -1,62 +1,29 @@
 #include "logging.h"
+#include <stdarg.h>
 
-// ================= ZMIENNE GLOBALNE =================
-LogLevel currentLogLevel = LOG_INFO;
-bool loggingEnabled = true;
+static LogLevel current_log_level = LOG_LEVEL_INFO;
 
-// ================= IMPLEMENTACJE =================
-
-/**
- * Inicjalizacja systemu logowania
- */
 void initializeLogging() {
     Serial.begin(115200);
-    delay(2000);
-    loggingEnabled = true;
-    currentLogLevel = LOG_INFO;
+    current_log_level = LOG_LEVEL_INFO;
+    LOG_INFO("Logging system initialized");
 }
 
-/**
- * Główna funkcja logowania
- */
-void logMessage(LogLevel level, const char* module, const char* message) {
-    if (!loggingEnabled || level < currentLogLevel) {
+void setLogLevel(LogLevel level) {
+    current_log_level = level;
+}
+
+void logMessage(LogLevel level, const char* format, ...) {
+    if (level > current_log_level) {
         return;
     }
     
-    const char* levelStr;
-    switch (level) {
-        case LOG_DEBUG:   levelStr = "DEBUG"; break;
-        case LOG_INFO:    levelStr = "INFO";  break;
-        case LOG_WARNING: levelStr = "WARN";  break;
-        case LOG_ERROR:   levelStr = "ERROR"; break;
-        default:          levelStr = "UNKNOWN"; break;
-    }
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
     
-    Serial.printf("[%s] [%s] %s\n", levelStr, module, message);
-}
-
-/**
- * Logowanie wydarzeń systemowych
- */
-void logSystemEvent(const char* event) {
-    logMessage(LOG_INFO, "SYSTEM", event);
-}
-
-/**
- * Logowanie wydarzeń związanych z bezpieczeństwem
- */
-void logSecurityEvent(const char* event, IPAddress ip) {
-    char buffer[256];
-    snprintf(buffer, sizeof(buffer), "%s - IP: %s", event, ip.toString().c_str());
-    logMessage(LOG_WARNING, "SECURITY", buffer);
-}
-
-/**
- * Logowanie wydarzeń sprzętowych
- */
-void logHardwareEvent(const char* device, const char* action) {
-    char buffer[256];
-    snprintf(buffer, sizeof(buffer), "%s: %s", device, action);
-    logMessage(LOG_INFO, "HARDWARE", buffer);
+    unsigned long timestamp = millis();
+    Serial.printf("[%lu] %s\n", timestamp, buffer);
 }

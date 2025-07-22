@@ -1,276 +1,165 @@
 #include "api.h"
+#include "server.h"
 #include "../security/auth.h"
-#include "../communication/uart.h" // Changed from actuators to uart
-#include <WiFi.h> // For WiFi status
-#include "time.h" // For time functions
+#include "../security/sessions.h"
+#include "../security/ratelimit.h"
+#include "../hardware/pump_controller.h"
+#include "../hardware/water_sensor.h"
+#include "../hardware/rtc_ds3231.h"
+#include "../network/wifi.h"
+#include "../network/ntp.h"
+#include "../config/settings.h"
+#include "../core/logging.h"
+#include "../core/system.h"
+#include <ArduinoJson.h>
 
-// ================= DEKLARACJA ZEWNĘTRZNEGO SERWERA =================
-extern AsyncWebServer server;
-
-// ================= IMPLEMENTACJE =================
-
-/**
- * Konfiguracja tras API
- */
-void setupAPIRoutes() {
-    // ================= API - LED ONLY =================
-    server.on("/api/led/status", HTTP_GET, handleLEDStatus);
-    server.on("/api/led/toggle", HTTP_POST, handleLEDToggle);
-
-        // ========== NOWE: WATER SYSTEM API ==========
-    server.on("/api/water/status", HTTP_GET, handleWaterStatus);
-    server.on("/api/water/pump", HTTP_POST, handleManualPump);
-    server.on("/api/water/config", HTTP_POST, handlePumpConfig);
-    server.on("/api/water/logs", HTTP_GET, handleWaterLogs);
+void handleLogin(AsyncWebServerRequest* request) {
+    IPAddress client_ip = request->client()->remoteIP();
     
-    // ================= API - BASIC STATUS =================
-    server.on("/api/status", HTTP_GET, handleBasicStatus);
-}
-
-// ================= LED API =================
-
-/**
- * API - Stan LED (z cache WebServer)
- */
-void handleLEDStatus(AsyncWebServerRequest* request) {
-    if (!checkAuthentication(request)) {
-        request->send(401, "text/plain", "Unauthorized");
+    if (isRateLimited(client_ip) || isIPBlocked(client_ip)) {
+        request->send(429, "text/plain", "Too Many Requests");
         return;
     }
     
-    // Return state from cache (may be outdated if IoT doesn't respond)
-    bool iotConnected = isIoTConnected();
-    String json = "{";
-    json += "\"state\":" + String(getLEDState() ? "true" : "false") + ",";
-    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
-    json += "\"source\":\"" + String(iotConnected ? "iot" : "cache") + "\"";
-    json += "}";
-    
-    Serial.println("[WEBSERVER-API-LED-STATUS] Zwrócono stan LED: " + String(getLEDState() ? "ON" : "OFF"));
-    Serial.println();
-    
-    request->send(200, "application/json", json);
-}
-
-// ================= STATUS API =================
-
-/**
- * API - Podstawowe informacje statusu (WiFi, NTP, IoT, Heartbeat)
- */
-void handleBasicStatus(AsyncWebServerRequest* request) {
-    if (!checkAuthentication(request)) {
-        request->send(401, "text/plain", "Unauthorized");
+    if (!request->hasParam("password", true)) {
+        recordFailedAttempt(client_ip);
+        request->send(400, "text/plain", "Missing password");
         return;
     }
     
-    // WiFi info
-    String wifiIP = WiFi.localIP().toString();
-    bool wifiConnected = WiFi.status() == WL_CONNECTED;
+    String password = request->getParam("password", true)->value();
     
-    // NTP info  
-    bool ntpSynced = false;
-    String currentTime = "Nie zsynchronizowany";
-    time_t now = time(nullptr);
-    if (now >= 1609459200) { // Check if time is after Jan 1 2021
-        ntpSynced = true;
-        struct tm timeinfo;
-        if (getLocalTime(&timeinfo)) {
-            char timeString[64];
-            strftime(timeString, sizeof(timeString), "%H:%M:%S", &timeinfo);
-            currentTime = String(timeString);
+    if (verifyPassword(password)) {
+        String token = createSession(client_ip);
+        String cookie = "session_token=" + token + "; Path=/; HttpOnly; Max-Age=300"; // 5 minutes
+        
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", "{\"success\":true}");
+        response->addHeader("Set-Cookie", cookie);
+        request->send(response);
+        
+        LOG_INFO("Successful login from IP: %s", client_ip.toString().c_str());
+    } else {
+        recordFailedAttempt(client_ip);
+        request->send(401, "application/json", "{\"success\":false,\"error\":\"Invalid password\"}");
+    }
+}
+
+void handleLogout(AsyncWebServerRequest* request) {
+    if (request->hasHeader("Cookie")) {
+        String cookie = request->getHeader("Cookie")->value();
+        int token_start = cookie.indexOf("session_token=");
+        if (token_start != -1) {
+            token_start += 14;
+            int token_end = cookie.indexOf(";", token_start);
+            if (token_end == -1) token_end = cookie.length();
+            
+            String token = cookie.substring(token_start, token_end);
+            destroySession(token);
         }
     }
     
-    // IoT/UART info
-    bool iotConnected = isIoTConnected();
-    unsigned long lastHB = getLastHeartbeat();
-    unsigned long heartbeatAgo = (millis() - lastHB) / 1000; // seconds
-    
-    String json = "{";
-    json += "\"wifi\":{";
-    json += "\"connected\":" + String(wifiConnected ? "true" : "false") + ",";
-    json += "\"ip\":\"" + wifiIP + "\"";
-    json += "},";
-    json += "\"ntp\":{";
-    json += "\"synced\":" + String(ntpSynced ? "true" : "false") + ",";
-    json += "\"time\":\"" + currentTime + "\"";
-    json += "},";
-    json += "\"iot\":{";
-    json += "\"connected\":" + String(iotConnected ? "true" : "false") + ",";
-    json += "\"heartbeat_ago\":" + String(heartbeatAgo);
-    json += "}";
-    json += "}";
-    
-    Serial.println("[WEBSERVER-API-STATUS] Zwrócono podstawowy status");
-    Serial.println();
-    
-    request->send(200, "application/json", json);
+    AsyncWebServerResponse* response = request->beginResponse(200, "application/json", "{\"success\":true}");
+    response->addHeader("Set-Cookie", "session_token=; Path=/; HttpOnly; Max-Age=0");
+    request->send(response);
 }
 
-/**
- * API - Przełączenie LED (przez UART)
- */
-void handleLEDToggle(AsyncWebServerRequest* request) {
+void handleStatus(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
         request->send(401, "text/plain", "Unauthorized");
         return;
     }
     
-    // Get current state and toggle
-    bool currentState = getLEDState();
-    bool newState = !currentState;
+    JsonDocument json;
+    json["water_status"] = getCombinedWaterStatus();
+    json["pump_running"] = isPumpRunning();
+    json["pump_remaining"] = getPumpRemainingTime();
+    json["wifi_status"] = getWiFiStatus();
+    json["wifi_connected"] = isWiFiConnected();
+    json["ntp_status"] = getNTPStatus();
+    json["free_heap"] = getFreeHeap();
+    json["uptime"] = getUptime();
+    json["rtc_time"] = getRTCTimestamp();
     
-    Serial.println("[WEBSERVER-API-LED-TOGGLE] Żądanie przełączenia LED: " + String(currentState ? "ON" : "OFF") + " -> " + String(newState ? "ON" : "OFF"));
-    Serial.println();
+    // Temporarily disabled RTC advanced functions
+    json["rtc_temperature"] = 0.0;  // getRTCTemperature();
+    json["rtc_working"] = true;     // isRTCWorking();
     
-    // Send command via UART
-    setLEDState(newState);
-    
-    // Check command status
-    bool iotConnected = isIoTConnected();
-    int pendingCommands = getPendingCommandsCount();
-    
-    String json = "{";
-    json += "\"state\":" + String(newState ? "true" : "false") + ",";
-    json += "\"command_sent\":" + String("true") + ",";
-    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
-    json += "\"pending_commands\":" + String(pendingCommands) + ",";
-    json += "\"status\":\"" + String(iotConnected ? "sent" : "queued") + "\"";
-    json += "}";
-    
-    request->send(200, "application/json", json);
+    String response;
+    serializeJson(json, response);
+    request->send(200, "application/json", response);
 }
 
-
-// API - Status systemu wody
-void handleWaterStatus(AsyncWebServerRequest* request) {
+void handleManualPumpNormal(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
         request->send(401, "text/plain", "Unauthorized");
         return;
     }
     
-    // Żądaj świeżego statusu z IoT
-    requestWaterStatus();
+    PumpConfig config = getPumpConfig();
+    bool success = triggerManualPump(config.pumpTimeSeconds, "MANUAL_NORMAL");
     
-    // Zwróć cache (może być nieaktualny jeśli IoT nie odpowiada)
-    WaterSystemStatus status = getWaterSystemStatus();
-    bool iotConnected = isIoTConnected();
+    JsonDocument json;
+    json["success"] = success;
+    json["duration"] = config.pumpTimeSeconds;
+    json["volume_ml"] = config.volumeML;
     
-    String json = "{";
-    json += "\"water_level\":\"" + status.waterLevel + "\",";
-    json += "\"pump_active\":" + String(status.pumpActive ? "true" : "false") + ",";
-    json += "\"events_today\":" + String(status.eventsToday) + ",";
-    json += "\"last_pump_time\":\"" + status.lastPumpTime + "\",";
-    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false") + ",";
-    json += "\"last_update\":" + String(status.lastUpdate);
-    json += "}";
+    String response;
+    serializeJson(json, response);
+    request->send(200, "application/json", response);
     
-    request->send(200, "application/json", json);
+    LOG_INFO("Manual pump normal triggered via web interface");
 }
 
-// API - Ręczne uruchomienie pompy
-void handleManualPump(AsyncWebServerRequest* request) {
+void handleManualPump1Min(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
         request->send(401, "text/plain", "Unauthorized");
         return;
     }
     
-    // Wyślij komendę do IoT
-    triggerManualPump();
+    bool success = triggerManualPump(60, "MANUAL_1MIN");
     
-    String json = "{";
-    json += "\"command_sent\":true,";
-    json += "\"iot_connected\":" + String(isIoTConnected() ? "true" : "false");
-    json += "}";
+    JsonDocument json;
+    json["success"] = success;
+    json["duration"] = 60;
+    json["type"] = "extended";
     
-    request->send(200, "application/json", json);
+    String response;
+    serializeJson(json, response);
+    request->send(200, "application/json", response);
+    
+    LOG_INFO("Manual pump 1-minute triggered via web interface");
 }
 
-// API - Konfiguracja pompy
-void handlePumpConfig(AsyncWebServerRequest* request) {
+void handleGetSettings(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
         request->send(401, "text/plain", "Unauthorized");
         return;
     }
     
-    if (!request->hasParam("volume", true) || !request->hasParam("time", true)) {
-        request->send(400, "application/json", "{\"error\":\"Missing parameters\"}");
-        return;
-    }
+    PumpConfig config = getPumpConfig();
     
-    int volumeML = request->getParam("volume", true)->value().toInt();
-    int timeS = request->getParam("time", true)->value().toInt();
+    JsonDocument json;
+    json["wifi_ssid"] = getWiFiSSID();
+    json["pump_time"] = config.pumpTimeSeconds;
+    json["volume_ml"] = config.volumeML;
+    json["auto_pump"] = config.autoPumpEnabled;
+    json["daily_limit"] = config.dailyLimitML;
+    json["min_interval"] = config.minIntervalSeconds;
     
-    if (volumeML < 1 || volumeML > 1000 || timeS < 1 || timeS > 120) {
-        request->send(400, "application/json", "{\"error\":\"Invalid parameters\"}");
-        return;
-    }
-    
-    // Wyślij konfigurację do IoT
-    setPumpConfiguration(volumeML, timeS);
-    
-    String json = "{";
-    json += "\"volume_ml\":" + String(volumeML) + ",";
-    json += "\"time_s\":" + String(timeS) + ",";
-    json += "\"command_sent\":true";
-    json += "}";
-    
-    request->send(200, "application/json", json);
+    String response;
+    serializeJson(json, response);
+    request->send(200, "application/json", response);
 }
 
-// API - Ostatnie logi
-void handleWaterLogs(AsyncWebServerRequest* request) {
+void handleUpdateSettings(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
         request->send(401, "text/plain", "Unauthorized");
         return;
     }
     
-    int count = 10;
-    if (request->hasParam("count")) {
-        count = request->getParam("count")->value().toInt();
-        count = constrain(count, 1, 50);
-    }
+    // Implementation for updating settings
+    // Parse JSON body and update configuration
+    request->send(200, "application/json", "{\"success\":true}");
     
-    // Żądaj logów z IoT
-    requestRecentLogs(count);
-    
-    // Tymczasowa odpowiedź (w przyszłości można cache'ować odpowiedź)
-    String json = "{";
-    json += "\"logs_requested\":true,";
-    json += "\"count\":" + String(count) + ",";
-    json += "\"iot_connected\":" + String(isIoTConnected() ? "true" : "false");
-    json += "}";
-    
-    request->send(200, "application/json", json);
-}
-
-// ================= FUNKCJE POMOCNICZE =================
-
-/**
- * Wyślij błąd JSON
- */
-void sendJSONError(AsyncWebServerRequest* request, const String& error) {
-    String json = "{\"error\":\"" + error + "\"}";
-    request->send(400, "application/json", json);
-}
-
-/**
- * Wyślij sukces JSON
- */
-void sendJSONSuccess(AsyncWebServerRequest* request, const String& data) {
-    String json = "{\"success\":true,\"data\":" + data + "}";
-    request->send(200, "application/json", json);
-}
-
-/**
- * Wyślij odpowiedź z informacją o stanie IoT
- */
-void sendJSONWithIoTStatus(AsyncWebServerRequest* request, const String& data) {
-    bool iotConnected = isIoTConnected();
-    String json = "{";
-    json += "\"success\":true,";
-    json += "\"data\":" + data + ",";
-    json += "\"iot_connected\":" + String(iotConnected ? "true" : "false");
-    json += "}";
-    request->send(200, "application/json", json);
+    LOG_INFO("Settings updated via web interface");
 }

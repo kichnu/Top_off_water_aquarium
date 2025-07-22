@@ -1,91 +1,50 @@
 #include "system.h"
 #include "logging.h"
-#include "../network/wifi.h"
-#include "../network/ntp.h"
+#include <esp_system.h>
+#include <esp_heap_caps.h>
 
-// ================= ZMIENNE GLOBALNE =================
-unsigned long systemStartTime = 0;
-bool systemInitialized = false;
+static unsigned long start_time = 0;
+static size_t min_free_heap = SIZE_MAX;
 
-// ================= IMPLEMENTACJE =================
-
-/**
- * Inicjalizacja systemu
- */
 void initializeSystem() {
-    systemStartTime = millis();
+    start_time = millis();
+    min_free_heap = getFreeHeap();
     
-    // Inicjalizuj generator liczb losowych dla tokenów sesji
-    randomSeed(analogRead(0));
-    
-    Serial.println("\n" + String("=").substring(0, 50));
-    Serial.println("🚀 ESP32 HTTP Server - Secure LAN Version");
-    Serial.println("📅 Wersja: 2.1 - " + String(__DATE__) + " " + String(__TIME__));
-    Serial.println(String("=").substring(0, 50));
-    
-    systemInitialized = true;
+    LOG_INFO("System initialized - Free heap: %d bytes", getFreeHeap());
 }
 
-/**
- * Konserwacja systemu - wywoływana w głównej pętli
- */
-void systemMaintenance() {
-    // Monitoring systemu co 30 sekund
-    static unsigned long lastSystemCheck = 0;
-    if (millis() - lastSystemCheck > 30000) {
-        lastSystemCheck = millis();
-        checkMemoryUsage();
+void updateSystem() {
+    size_t current_heap = getFreeHeap();
+    if (current_heap < min_free_heap) {
+        min_free_heap = current_heap;
+    }
+    
+    // Log memory status every 5 minutes
+    static unsigned long last_memory_log = 0;
+    if (millis() - last_memory_log > 300000) {
+        LOG_INFO("Memory status - Free: %d, Min: %d bytes", current_heap, min_free_heap);
+        last_memory_log = millis();
     }
 }
 
-/**
- * Pobierz informacje o systemie
- */
-SystemInfo getSystemInfo() {
-    SystemInfo info;
-    info.uptime = millis();
-    info.freeHeap = ESP.getFreeHeap();
-    info.wifiRSSI = WiFi.RSSI();
-    info.ntpSynced = isNTPSynced();
-    
-    if (info.ntpSynced) {
-        time_t now = time(nullptr);
-        struct tm timeinfo;
-        if (getLocalTime(&timeinfo)) {
-            char timeString[64];
-            strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
-            info.currentTime = String(timeString);
-            info.timezone = String(timeinfo.tm_isdst ? "CEST (letni)" : "CET (zimowy)");
-        } else {
-            info.currentTime = "Błąd odczytu";
-            info.timezone = "Nieznana";
-        }
-    } else {
-        info.currentTime = "Nie zsynchronizowany";
-        info.timezone = "Brak";
-    }
-    
-    return info;
+size_t getFreeHeap() {
+    return esp_get_free_heap_size();
 }
 
-/**
- * Restart systemu
- */
-void restartSystem() {
-    Serial.println("[SYSTEM] Restart systemu...");
-    delay(1000);
+size_t getMinFreeHeap() {
+    return min_free_heap;
+}
+
+float getCPUTemperature() {
+    // ESP32-C6 temperature sensor (if available)
+    return 0.0; // Placeholder - implementation depends on specific sensor availability
+}
+
+unsigned long getUptime() {
+    return millis() - start_time;
+}
+
+void resetSystem() {
+    LOG_INFO("System reset requested");
     ESP.restart();
-}
-
-/**
- * Sprawdź użycie pamięci i wypisz statystyki
- */
-void checkMemoryUsage() {
-    Serial.printf("[SYSTEM] Uptime: %lu min, Pamięć: %d bytes\n", 
-                 millis() / 60000, ESP.getFreeHeap());
-    
-    // Ostrzeżenie o niskiej pamięci
-    if (ESP.getFreeHeap() < 10000) {
-        Serial.println("[SYSTEM] ⚠️ Niska ilość wolnej pamięci!");
-    }
 }

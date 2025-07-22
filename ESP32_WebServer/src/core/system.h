@@ -1,28 +1,14 @@
-#ifndef CORE_SYSTEM_H
-#define CORE_SYSTEM_H
+#ifndef SYSTEM_H
+#define SYSTEM_H
 
 #include <Arduino.h>
-#include "../config.h"
 
-// ================= STRUKTURY SYSTEMOWE =================
-struct SystemInfo {
-    unsigned long uptime;
-    uint32_t freeHeap;
-    int wifiRSSI;
-    bool ntpSynced;
-    String currentTime;
-    String timezone;
-};
-
-// ================= FUNKCJE SYSTEMOWE =================
 void initializeSystem();
-void systemMaintenance();
-SystemInfo getSystemInfo();
-void restartSystem();
-void checkMemoryUsage();
-
-// ================= ZMIENNE GLOBALNE =================
-extern unsigned long systemStartTime;
-extern bool systemInitialized;
+void updateSystem();
+size_t getFreeHeap();
+size_t getMinFreeHeap();
+float getCPUTemperature();
+unsigned long getUptime();
+void resetSystem();
 
 #endif

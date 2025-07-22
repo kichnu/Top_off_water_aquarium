@@ -1,168 +1,106 @@
 #include "ratelimit.h"
+#include "../config/network_security.h"
 #include "../core/logging.h"
+#include <map>
+#include <vector>
 
-// ================= ZMIENNE GLOBALNE =================
-ClientInfo clients[MAX_CLIENTS];
-int clientCount = 0;
-unsigned long lastClientCleanup = 0;
 
-// ================= IMPLEMENTACJE =================
+struct RateLimitData {
+    std::vector<unsigned long> request_times;
+    unsigned long last_request;
+    int failed_attempts;
+    unsigned long block_until;
+};
 
-/**
- * Inicjalizacja systemu rate limiting
- */
+static std::map<String, RateLimitData> rate_limit_data;
+
 void initializeRateLimit() {
-    clientCount = 0;
-    lastClientCleanup = millis();
-    
-    // Wyczyść wszystkich klientów
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        clients[i].ip = IPAddress(0, 0, 0, 0);
-        clients[i].lastRequest = 0;
-        clients[i].blockedUntil = 0;
-        clients[i].failedAttempts = 0;
-        clients[i].requestCount = 0;
-        clients[i].requestWindow = 0;
-    }
-    
-    LOG_INFO_MSG("RATELIMIT", "System rate limiting zainicjalizowany");
+    rate_limit_data.clear();
+    LOG_INFO("Rate limiting initialized");
 }
 
-/**
- * Znajdź lub utwórz wpis dla klienta na podstawie IP
- */
-ClientInfo* findOrCreateClient(IPAddress ip) {
-    // Sprawdź czy klient już istnieje
-    for (int i = 0; i < clientCount; i++) {
-        if (clients[i].ip == ip) {
-            return &clients[i];
-        }
-    }
-    
-    // Utwórz nowy wpis jeśli jest miejsce
-    if (clientCount < MAX_CLIENTS) {
-        clients[clientCount].ip = ip;
-        clients[clientCount].lastRequest = 0;
-        clients[clientCount].blockedUntil = 0;
-        clients[clientCount].failedAttempts = 0;
-        clients[clientCount].requestCount = 0;
-        clients[clientCount].requestWindow = 0;
-        return &clients[clientCount++];
-    }
-    
-    // Jeśli brak miejsca, zwróć najstarszy wpis
-    int oldestIndex = 0;
-    unsigned long oldestTime = clients[0].lastRequest;
-    for (int i = 1; i < MAX_CLIENTS; i++) {
-        if (clients[i].lastRequest < oldestTime) {
-            oldestTime = clients[i].lastRequest;
-            oldestIndex = i;
-        }
-    }
-    
-    // Zresetuj najstarszy wpis dla nowego IP
-    clients[oldestIndex].ip = ip;
-    clients[oldestIndex].lastRequest = 0;
-    clients[oldestIndex].blockedUntil = 0;
-    clients[oldestIndex].failedAttempts = 0;
-    clients[oldestIndex].requestCount = 0;
-    clients[oldestIndex].requestWindow = 0;
-    
-    return &clients[oldestIndex];
-}
-
-/**
- * Sprawdź rate limiting dla danego IP
- */
-bool checkRateLimit(IPAddress ip) {
-    ClientInfo* client = findOrCreateClient(ip);
+void updateRateLimit() {
     unsigned long now = millis();
     
-    // Sprawdź czy IP jest zablokowane
-    if (client->blockedUntil > now) {
-        return false;
-    }
-    
-    // Reset blokady jeśli czas minął
-    if (client->blockedUntil != 0 && client->blockedUntil <= now) {
-        client->blockedUntil = 0;
-        client->failedAttempts = 0;
-    }
-    
-    // Sprawdź okno czasowe dla żądań
-    if (now - client->requestWindow > RATE_LIMIT_WINDOW) {
-        client->requestWindow = now;
-        client->requestCount = 1;
-    } else {
-        client->requestCount++;
-    }
-    
-    // Sprawdź limit żądań
-    if (client->requestCount > MAX_REQUESTS_PER_WINDOW) {
-        client->blockedUntil = now + BLOCK_DURATION;
-        
-        char buffer[128];
-        snprintf(buffer, sizeof(buffer), "IP %s przekroczył limit żądań (%d/%d)", 
-                ip.toString().c_str(), client->requestCount, MAX_REQUESTS_PER_WINDOW);
-        logSecurityEvent(buffer, ip);
-        
-        return false;
-    }
-    
-    client->lastRequest = now;
-    return true;
-}
-
-/**
- * Zapisz nieudaną próbę logowania
- */
-void recordFailedLogin(IPAddress ip) {
-    ClientInfo* client = findOrCreateClient(ip);
-    client->failedAttempts++;
-    
-    if (client->failedAttempts >= MAX_FAILED_ATTEMPTS) {
-        client->blockedUntil = millis() + BLOCK_DURATION;
-        
-        char buffer[128];
-        snprintf(buffer, sizeof(buffer), "IP %s zablokowane na 1 minutę", ip.toString().c_str());
-        logSecurityEvent(buffer, ip);
-    }
-}
-
-/**
- * Zresetuj licznik nieudanych prób dla IP
- */
-void resetFailedAttempts(IPAddress ip) {
-    ClientInfo* client = findOrCreateClient(ip);
-    if (client->failedAttempts > 0) {
-        client->failedAttempts = 0;
-    }
-}
-
-/**
- * Wyczyść starych klientów
- */
-void cleanupOldClients() {
-    unsigned long now = millis();
-    int cleanedClients = 0;
-    
-    for (int i = 0; i < clientCount; i++) {
-        if (clients[i].blockedUntil == 0 && 
-            (now - clients[i].lastRequest) > 3600000) { // 1 godzina nieaktywności
-            if (i < clientCount - 1) {
-                clients[i] = clients[clientCount - 1];
-                i--;
+    // Clean up old data every 5 minutes
+    static unsigned long last_cleanup = 0;
+    if (now - last_cleanup > 300000) {
+        for (auto it = rate_limit_data.begin(); it != rate_limit_data.end();) {
+            if (now - it->second.last_request > 300000) { // 5 minutes inactive
+                it = rate_limit_data.erase(it);
+            } else {
+                ++it;
             }
-            clientCount--;
-            cleanedClients++;
         }
+        last_cleanup = now;
+    }
+}
+
+bool isRateLimited(IPAddress ip) {
+    if (isLocalIPAllowed(ip)) {
+        return false; // No rate limiting for whitelisted IPs
     }
     
-    if (cleanedClients > 0) {
-        char buffer[64];
-        snprintf(buffer, sizeof(buffer), "Wyczyszczono %d starych klientów", cleanedClients);
-        LOG_INFO_MSG("RATELIMIT", buffer);
+    String ip_str = ip.toString();
+    if (rate_limit_data.find(ip_str) == rate_limit_data.end()) {
+        return false;
     }
     
-    lastClientCleanup = now;
+    RateLimitData& data = rate_limit_data[ip_str];
+    unsigned long now = millis();
+    
+    // Check if IP is blocked
+    if (data.block_until > now) {
+        return true;
+    }
+    
+    // Clean old request times (older than 1 second)
+    data.request_times.erase(
+        std::remove_if(data.request_times.begin(), data.request_times.end(),
+                      [now](unsigned long time) { return now - time > 1000; }),
+        data.request_times.end());
+    
+    // Check if too many requests in last second
+    return data.request_times.size() >= MAX_REQUESTS_PER_SECOND;
+}
+
+void recordRequest(IPAddress ip) {
+    String ip_str = ip.toString();
+    unsigned long now = millis();
+    
+    RateLimitData& data = rate_limit_data[ip_str];
+    data.request_times.push_back(now);
+    data.last_request = now;
+}
+
+void recordFailedAttempt(IPAddress ip) {
+    if (isLocalIPAllowed(ip)) {
+        return; // No blocking for whitelisted IPs
+    }
+    
+    String ip_str = ip.toString();
+    unsigned long now = millis();
+    
+    RateLimitData& data = rate_limit_data[ip_str];
+    data.failed_attempts++;
+    
+    if (data.failed_attempts >= MAX_FAILED_ATTEMPTS) {
+        data.block_until = now + BLOCK_DURATION_MS;
+        data.failed_attempts = 0; // Reset counter
+        LOG_WARNING("IP %s blocked for %d seconds due to failed attempts", 
+                   ip_str.c_str(), BLOCK_DURATION_MS / 1000);
+    }
+}
+
+bool isIPBlocked(IPAddress ip) {
+    if (isLocalIPAllowed(ip)) {
+        return false;
+    }
+    
+    String ip_str = ip.toString();
+    if (rate_limit_data.find(ip_str) == rate_limit_data.end()) {
+        return false;
+    }
+    
+    return rate_limit_data[ip_str].block_until > millis();
 }

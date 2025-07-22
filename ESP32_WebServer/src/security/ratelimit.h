@@ -1,30 +1,14 @@
-#ifndef SECURITY_RATELIMIT_H
-#define SECURITY_RATELIMIT_H
+#ifndef RATELIMIT_H
+#define RATELIMIT_H
 
-#include <IPAddress.h>
-#include "../config.h"
+#include <Arduino.h>
+#include <WiFi.h>
 
-// ================= STRUKTURY RATE LIMITING =================
-struct ClientInfo {
-    IPAddress ip;
-    unsigned long lastRequest;
-    unsigned long blockedUntil;
-    int failedAttempts;
-    int requestCount;
-    unsigned long requestWindow;
-};
-
-// ================= FUNKCJE RATE LIMITING =================
 void initializeRateLimit();
-bool checkRateLimit(IPAddress ip);
-void recordFailedLogin(IPAddress ip);
-void resetFailedAttempts(IPAddress ip);
-ClientInfo* findOrCreateClient(IPAddress ip);
-void cleanupOldClients();
-
-// ================= ZMIENNE GLOBALNE =================
-extern ClientInfo clients[];
-extern int clientCount;
-extern unsigned long lastClientCleanup;
+void updateRateLimit();
+bool isRateLimited(IPAddress ip);
+void recordRequest(IPAddress ip);
+void recordFailedAttempt(IPAddress ip);
+bool isIPBlocked(IPAddress ip);
 
 #endif

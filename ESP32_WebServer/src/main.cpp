@@ -1,98 +1,86 @@
-/**
- * ESP32 Smart Home WebServer - Refactored Main File
- * 
- * Simplified system for LED control via UART communication with IoT ESP32
- * Features: LED control, authentication, sessions, WiFi, NTP, UART
- * 
- * Version: 2.1 Refactored - Minimal Clean Code
- */
-
-// ================= IMPORTY MODUŁÓW =================
-#include "config.h"
-#include "core/system.h"
-#include "core/logging.h"
+#include <Arduino.h>
+#include <WiFi.h>
+#include "config/hardware_pins.h"
+#include "config/settings.h"
+#include "hardware/water_sensor.h"
+#include "hardware/pump_controller.h"
+#include "hardware/rtc_ds3231.h"
 #include "network/wifi.h"
 #include "network/ntp.h"
+#include "network/vps_logger.h"
 #include "security/auth.h"
 #include "security/sessions.h"
 #include "security/ratelimit.h"
 #include "web/server.h"
-#include "communication/uart.h"  // UART communication + LED control
+#include "core/logging.h"
+#include "core/system.h"
 
-// ================= SETUP =================
+
+#define LED_BUILTIN 2
+
 void setup() {
+    Serial.begin(115200);
+    delay(1000);
+
+    pinMode(LED_BUILTIN, OUTPUT);
+    
+    LOG_INFO("=== ESP32-C6 Unified Water System Starting ===");
+    
     // Initialize core systems
     initializeLogging();
+    initializeSettings();
     initializeSystem();
     
-    Serial.println("[WEBSERVER-START] Uruchamianie ESP32 WebServer + IoT UART");
-    Serial.println();
+    // Initialize hardware
+    initializeWaterSensors();
+    initializePumpController();
+    initializeRTC();
     
-    // Initialize UART communication (includes LED control)
-    initializeUART();
-    
-    // Initialize network
-    initializeWiFi();
+    // Debug RTC status - simplified version
+    Serial.println("[SYSTEM] RTC initialized");
+    Serial.printf("[SYSTEM] Current time: %s\n", getRTCTimestamp().c_str());
+    // Serial.printf("[SYSTEM] RTC Temperature: %.2f°C\n", getRTCTemperature()); // Commented out temporarily
     
     // Initialize security
+    initializeAuth();
     initializeSessions();
     initializeRateLimit();
     
-    // Initialize web services
+    // Initialize network
+    initializeWiFi();
+    initializeNTP();
+    initializeVPSLogger();
+    
+    // Initialize web server
     initializeWebServer();
-    startWebServer();
     
-    // Request initial state sync from IoT
-    delay(2000); // Wait for IoT to start
-    requestStateSync();
-    
-    Serial.println("[WEBSERVER-READY] System gotowy do pracy");
-    Serial.printf("[WEBSERVER-CONFIG] WiFi: %s, UART: TX=%d RX=%d Baud=%d\n", WIFI_SSID, UART_TX_PIN, UART_RX_PIN, UART_BAUD_RATE);
-    Serial.println();
+    LOG_INFO("=== System initialization complete ===");
+    LOG_INFO("IP Address: %s", WiFi.localIP().toString().c_str());
 }
 
-// ================= LOOP =================
 void loop() {
-    // Check network connection
-    checkWiFiConnection();
+    // Core system tasks
+    processDualWaterSensors();
+    updatePumpController();
+    updateSessions();
+    updateRateLimit();
+    updateSystem();
     
-    // Process UART communication with IoT
-    processUARTData();
+    // Network tasks
+    updateNTP();
     
-    // System maintenance
-    systemMaintenance();
-    
-    // Cleanup old sessions and clients every 5 minutes
-    static unsigned long lastCleanup = 0;
-    if (millis() - lastCleanup > 300000) {
-        lastCleanup = millis();
-        
-        cleanupExpiredSessions();
-        cleanupOldClients();
-        
-        // Show status
-        int activeSessions = getActiveSessionCount();
-        int pendingCommands = getPendingCommandsCount();
-        bool iotConnected = isIoTConnected();
-        
-        if (activeSessions > 0 || pendingCommands > 0 || !iotConnected) {
-            Serial.println("[WEBSERVER-STATUS] Sesje: " + String(activeSessions) + 
-                          ", UART Commands: " + String(pendingCommands) + 
-                          ", IoT: " + String(iotConnected ? "Connected" : "Disconnected"));
-            Serial.println();
-        }
+    // Debug RTC every 10 minutes - simplified
+    static unsigned long lastRTCDebug = 0;
+    if (millis() - lastRTCDebug > 600000) { // 10 minutes
+        Serial.printf("[SYSTEM] RTC Status - Time: %s\n", getRTCTimestamp().c_str());
+        lastRTCDebug = millis();
     }
+    Serial.printf("sdujfhgbvijkuaefghbuiejrak");
+    digitalWrite(LED_BUILTIN, HIGH);
     
-    // Monitor IoT connection status
-    static unsigned long lastIoTCheck = 0;
-    if (millis() - lastIoTCheck > 60000) { // Every minute
-        lastIoTCheck = millis();
-        
-        if (!isIoTConnected()) {
-            Serial.println("[WEBSERVER-IOT-WARNING] IoT rozłączony - używam cache");
-            Serial.println();
-        }
-    }
     
+    delay(100);
+    
+    digitalWrite(LED_BUILTIN, LOW);
     delay(100);
 }
