@@ -1,10 +1,19 @@
-#include "auth.h"
-#include "../config/settings.h"
+#include "auth_manager.h"
+#include "../config/config.h"
 #include "../core/logging.h"
 #include <mbedtls/md.h>
 
-void initializeAuth() {
-    LOG_INFO("Authentication system initialized");
+void initAuthManager() {
+    LOG_INFO("Authentication manager initialized");
+}
+
+bool isIPAllowed(IPAddress ip) {
+    for (int i = 0; i < ALLOWED_IPS_COUNT; i++) {
+        if (ALLOWED_IPS[i] == ip) {
+            return true;
+        }
+    }
+    return false;
 }
 
 String hashPassword(const String& password) {
@@ -32,9 +41,8 @@ String hashPassword(const String& password) {
 
 bool verifyPassword(const String& password) {
     String inputHash = hashPassword(password);
-    String storedHash = getAdminPasswordHash();
+    bool valid = (inputHash == ADMIN_PASSWORD_HASH);
     
-    bool valid = (inputHash == storedHash);
     if (valid) {
         LOG_INFO("Password verification successful");
     } else {
@@ -42,8 +50,4 @@ bool verifyPassword(const String& password) {
     }
     
     return valid;
-}
-
-bool isPasswordValid(const String& password) {
-    return password.length() >= 6; // Minimum 6 characters
 }

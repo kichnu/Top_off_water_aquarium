@@ -1,29 +1,35 @@
 #include "logging.h"
 #include <stdarg.h>
 
-static LogLevel current_log_level = LOG_LEVEL_INFO;
-
-void initializeLogging() {
+void initLogging() {
     Serial.begin(115200);
-    current_log_level = LOG_LEVEL_INFO;
+    delay(1000);
     LOG_INFO("Logging system initialized");
 }
 
-void setLogLevel(LogLevel level) {
-    current_log_level = level;
-}
-
-void logMessage(LogLevel level, const char* format, ...) {
-    if (level > current_log_level) {
-        return;
-    }
-    
+void logInfo(const char* format, ...) {
     char buffer[256];
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    
-    unsigned long timestamp = millis();
-    Serial.printf("[%lu] %s\n", timestamp, buffer);
+    Serial.printf("[%lu] %s\n", millis(), buffer);
+}
+
+void logWarning(const char* format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    Serial.printf("[%lu] %s\n", millis(), buffer);
+}
+
+void logError(const char* format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    Serial.printf("[%lu] %s\n", millis(), buffer);
 }

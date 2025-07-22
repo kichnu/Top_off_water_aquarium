@@ -1,88 +1,74 @@
 #include "pump_controller.h"
 #include "../config/hardware_pins.h"
-#include "../config/settings.h"
+#include "../config/config.h"
 #include "../network/vps_logger.h"
-#include "../hardware/rtc_ds3231.h"
+#include "../hardware/rtc_controller.h"
 #include "../core/logging.h"
 
-static bool pump_running = false;
-static unsigned long pump_start_time = 0;
-static unsigned long pump_duration = 0;
-static String current_action_type = "";
+bool pumpRunning = false;
+unsigned long pumpStartTime = 0;
+unsigned long pumpDuration = 0;
+String currentActionType = "";
 
-void initializePumpController() {
+void initPumpController() {
     pinMode(PUMP_RELAY_PIN, OUTPUT);
-    digitalWrite(PUMP_RELAY_PIN, LOW);  // Pump OFF
+    digitalWrite(PUMP_RELAY_PIN, LOW);
     
-    pump_running = false;
-    pump_start_time = 0;
-    pump_duration = 0;
-    
+    pumpRunning = false;
     LOG_INFO("Pump controller initialized");
 }
 
 void updatePumpController() {
-    if (pump_running && (millis() - pump_start_time >= pump_duration)) {
-        // Stop pump
+    if (pumpRunning && (millis() - pumpStartTime >= pumpDuration)) {
+        // Stop pump and log event
         digitalWrite(PUMP_RELAY_PIN, LOW);
-        pump_running = false;
+        pumpRunning = false;
         
-        PumpConfig config = getPumpConfig();
-        uint16_t volume_ml = (pump_duration / 1000) * (config.volumeML / config.pumpTimeSeconds);
+        uint16_t actualDuration = (millis() - pumpStartTime) / 1000;
+        uint16_t volumeML = actualDuration * currentPumpSettings.volumePerSecond;
         
-        LOG_INFO("Pump stopped after %lu seconds, estimated volume: %d ml", 
-                 pump_duration / 1000, volume_ml);
+        LOG_INFO("Pump stopped after %d seconds, estimated volume: %d ml", 
+                 actualDuration, volumeML);
         
         // Log to VPS
-        String timestamp = getRTCTimestamp();
-        logToVPS(current_action_type, volume_ml, timestamp);
-        
-        current_action_type = "";
+        logEventToVPS(currentActionType, volumeML, getCurrentTimestamp());
+        currentActionType = "";
     }
 }
 
-bool triggerAutomaticPump() {
-    if (pump_running) {
-        LOG_WARNING("Pump already running, ignoring auto trigger");
+bool triggerPump(uint16_t durationSeconds, const String& actionType) {
+    if (pumpRunning) {
+        LOG_WARNING("Pump already running, ignoring trigger");
         return false;
     }
     
-    PumpConfig config = getPumpConfig();
-    if (!config.autoPumpEnabled) {
-        LOG_INFO("Auto pump disabled in settings");
-        return false;
-    }
-    
-    return triggerManualPump(config.pumpTimeSeconds, "AUTO_PUMP");
-}
-
-bool triggerManualPump(uint16_t duration_seconds, const String& action_type) {
-    if (pump_running) {
-        LOG_WARNING("Pump already running, ignoring manual trigger");
-        return false;
-    }
-    
-    // Start pump
     digitalWrite(PUMP_RELAY_PIN, HIGH);
-    pump_running = true;
-    pump_start_time = millis();
-    pump_duration = duration_seconds * 1000UL;
-    current_action_type = action_type;
+    pumpRunning = true;
+    pumpStartTime = millis();
+    pumpDuration = durationSeconds * 1000UL;
+    currentActionType = actionType;
     
-    LOG_INFO("Pump started: %s for %d seconds", action_type.c_str(), duration_seconds);
-    
+    LOG_INFO("Pump started: %s for %d seconds", actionType.c_str(), durationSeconds);
     return true;
 }
 
-bool isPumpRunning() {
-    return pump_running;
+bool isPumpActive() {
+    return pumpRunning;
 }
 
 uint32_t getPumpRemainingTime() {
-    if (!pump_running) return 0;
+    if (!pumpRunning) return 0;
     
-    unsigned long elapsed = millis() - pump_start_time;
-    if (elapsed >= pump_duration) return 0;
+    unsigned long elapsed = millis() - pumpStartTime;
+    if (elapsed >= pumpDuration) return 0;
     
-    return (pump_duration - elapsed) / 1000;
+    return (pumpDuration - elapsed) / 1000;
+}
+
+void stopPump() {
+    if (pumpRunning) {
+        digitalWrite(PUMP_RELAY_PIN, LOW);
+        pumpRunning = false;
+        LOG_INFO("Pump manually stopped");
+    }
 }

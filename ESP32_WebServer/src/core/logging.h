@@ -3,21 +3,13 @@
 
 #include <Arduino.h>
 
-enum LogLevel {
-    LOG_LEVEL_ERROR = 0,
-    LOG_LEVEL_WARNING = 1,
-    LOG_LEVEL_INFO = 2,
-    LOG_LEVEL_DEBUG = 3
-};
+void initLogging();
+void logInfo(const char* format, ...);
+void logWarning(const char* format, ...);
+void logError(const char* format, ...);
 
-void initializeLogging();
-void setLogLevel(LogLevel level);
-
-#define LOG_ERROR(format, ...) logMessage(LOG_LEVEL_ERROR, "[ERROR] " format, ##__VA_ARGS__)
-#define LOG_WARNING(format, ...) logMessage(LOG_LEVEL_WARNING, "[WARN] " format, ##__VA_ARGS__)
-#define LOG_INFO(format, ...) logMessage(LOG_LEVEL_INFO, "[INFO] " format, ##__VA_ARGS__)
-#define LOG_DEBUG(format, ...) logMessage(LOG_LEVEL_DEBUG, "[DEBUG] " format, ##__VA_ARGS__)
-
-void logMessage(LogLevel level, const char* format, ...);
+#define LOG_INFO(format, ...) logInfo("[INFO] " format, ##__VA_ARGS__)
+#define LOG_WARNING(format, ...) logWarning("[WARN] " format, ##__VA_ARGS__)
+#define LOG_ERROR(format, ...) logError("[ERROR] " format, ##__VA_ARGS__)
 
 #endif

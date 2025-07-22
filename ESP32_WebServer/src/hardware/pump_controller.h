@@ -3,11 +3,11 @@
 
 #include <Arduino.h>
 
-void initializePumpController();
+void initPumpController();
 void updatePumpController();
-bool triggerAutomaticPump();
-bool triggerManualPump(uint16_t duration_seconds, const String& action_type);
-bool isPumpRunning();
+bool triggerPump(uint16_t durationSeconds, const String& actionType);
+bool isPumpActive();
 uint32_t getPumpRemainingTime();
+void stopPump();
 
 #endif

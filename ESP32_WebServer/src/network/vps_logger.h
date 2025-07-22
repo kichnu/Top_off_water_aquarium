@@ -3,8 +3,7 @@
 
 #include <Arduino.h>
 
-void initializeVPSLogger();
-bool logToVPS(const String& event_type, int volume_ml, const String& timestamp);
-String calculateHMAC(const String& message);
+void initVPSLogger();
+bool logEventToVPS(const String& eventType, uint16_t volumeML, const String& timestamp);
 
 #endif

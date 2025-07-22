@@ -1,86 +1,88 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include "config/hardware_pins.h"
-#include "config/settings.h"
-#include "hardware/water_sensor.h"
-#include "hardware/pump_controller.h"
-#include "hardware/rtc_ds3231.h"
-#include "network/wifi.h"
-#include "network/ntp.h"
-#include "network/vps_logger.h"
-#include "security/auth.h"
-#include "security/sessions.h"
-#include "security/ratelimit.h"
-#include "web/server.h"
+#include "config/config.h"
 #include "core/logging.h"
-#include "core/system.h"
+#include "hardware/rtc_controller.h"
+#include "hardware/water_sensors.h"
+#include "hardware/pump_controller.h"
+#include "network/wifi_manager.h"
+#include "network/vps_logger.h"
+#include "security/auth_manager.h"
+#include "security/session_manager.h"
+#include "security/rate_limiter.h"
+#include "web/web_server.h"
 
+#define STATUS_LED_PIN 2
 
-#define LED_BUILTIN 2
+// Global pump settings
+
 
 void setup() {
-    Serial.begin(115200);
-    delay(1000);
-
-    pinMode(LED_BUILTIN, OUTPUT);
-    
-    LOG_INFO("=== ESP32-C6 Unified Water System Starting ===");
-    
     // Initialize core systems
-    initializeLogging();
-    initializeSettings();
-    initializeSystem();
+    initLogging();
+    
+    LOG_INFO("=== ESP32-C3 Water System Starting ===");
+    LOG_INFO("Device ID: %s", DEVICE_ID);
     
     // Initialize hardware
-    initializeWaterSensors();
-    initializePumpController();
-    initializeRTC();
+    pinMode(STATUS_LED_PIN, OUTPUT);
+    digitalWrite(STATUS_LED_PIN, HIGH); 
     
-    // Debug RTC status - simplified version
-    Serial.println("[SYSTEM] RTC initialized");
-    Serial.printf("[SYSTEM] Current time: %s\n", getRTCTimestamp().c_str());
-    // Serial.printf("[SYSTEM] RTC Temperature: %.2f°C\n", getRTCTemperature()); // Commented out temporarily
+    initRTC();
+    initWaterSensors();
+    initPumpController();
     
     // Initialize security
-    initializeAuth();
-    initializeSessions();
-    initializeRateLimit();
+    initAuthManager();
+    initSessionManager();
+    initRateLimiter();
     
     // Initialize network
-    initializeWiFi();
-    initializeNTP();
-    initializeVPSLogger();
+    initWiFi();
+    initVPSLogger();
     
     // Initialize web server
-    initializeWebServer();
+    initWebServer();
+    
+    digitalWrite(STATUS_LED_PIN, LOW);
     
     LOG_INFO("=== System initialization complete ===");
-    LOG_INFO("IP Address: %s", WiFi.localIP().toString().c_str());
+    if (isWiFiConnected()) {
+        LOG_INFO("Dashboard: http://%s", getLocalIP().toString().c_str());
+    }
+    LOG_INFO("Current time: %s", getCurrentTimestamp().c_str());
 }
 
 void loop() {
-    // Core system tasks
-    processDualWaterSensors();
-    updatePumpController();
-    updateSessions();
-    updateRateLimit();
-    updateSystem();
+    static unsigned long lastUpdate = 0;
+    unsigned long now = millis();
     
-    // Network tasks
-    updateNTP();
+    // Update water sensors every loop
+    updateWaterSensors();
     
-    // Debug RTC every 10 minutes - simplified
-    static unsigned long lastRTCDebug = 0;
-    if (millis() - lastRTCDebug > 600000) { // 10 minutes
-        Serial.printf("[SYSTEM] RTC Status - Time: %s\n", getRTCTimestamp().c_str());
-        lastRTCDebug = millis();
+    // Update other systems every 100ms
+    if (now - lastUpdate >= 100) {
+        updatePumpController();
+        updateSessionManager();
+        updateRateLimiter();
+        updateWiFi();
+        
+        // Check for auto pump trigger
+        if (currentPumpSettings.autoModeEnabled && shouldActivatePump() && !isPumpActive()) {
+            LOG_INFO("Auto pump triggered - water level low");
+            triggerPump(currentPumpSettings.normalCycleSeconds, "AUTO_PUMP");
+        }
+        
+        lastUpdate = now;
     }
-    Serial.printf("sdujfhgbvijkuaefghbuiejrak");
-    digitalWrite(LED_BUILTIN, HIGH);
     
+    // Status LED heartbeat (slow blink when OK, fast when issues)
+    static unsigned long lastBlink = 0;
+    unsigned long blinkInterval = (isWiFiConnected() && isRTCWorking()) ? 2000 : 500;
     
-    delay(100);
+    if (now - lastBlink >= blinkInterval) {
+        digitalWrite(STATUS_LED_PIN, !digitalRead(STATUS_LED_PIN));
+        lastBlink = now;
+    }
     
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(100);
+    delay(10); // Small delay to prevent watchdog issues
 }

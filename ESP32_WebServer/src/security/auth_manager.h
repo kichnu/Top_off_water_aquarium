@@ -1,11 +1,12 @@
-#ifndef AUTH_H
-#define AUTH_H
+#ifndef AUTH_MANAGER_H
+#define AUTH_MANAGER_H
 
 #include <Arduino.h>
+#include <WiFi.h>
 
-void initializeAuth();
+void initAuthManager();
+bool isIPAllowed(IPAddress ip);
 bool verifyPassword(const String& password);
 String hashPassword(const String& password);
-bool isPasswordValid(const String& password);
 
 #endif

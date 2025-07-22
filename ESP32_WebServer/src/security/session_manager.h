@@ -1,22 +1,22 @@
-#ifndef SESSIONS_H
-#define SESSIONS_H
+#ifndef SESSION_MANAGER_H
+#define SESSION_MANAGER_H
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <vector>
 
 struct Session {
     String token;
     IPAddress ip;
-    unsigned long created_at;
-    unsigned long last_activity;
-    bool is_valid;
+    unsigned long createdAt;
+    unsigned long lastActivity;
+    bool isValid;
 };
 
-void initializeSessions();
-void updateSessions();
+void initSessionManager();
+void updateSessionManager();
 String createSession(IPAddress ip);
 bool validateSession(const String& token, IPAddress ip);
 void destroySession(const String& token);
-void clearExpiredSessions();
 
 #endif
