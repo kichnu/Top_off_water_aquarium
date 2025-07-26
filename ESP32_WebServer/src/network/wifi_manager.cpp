@@ -3,6 +3,8 @@
 #include "../core/logging.h"
 #include <WiFi.h>
 
+
+
 unsigned long lastReconnectAttempt = 0;
 const unsigned long RECONNECT_INTERVAL = 30000; // 30 seconds
 

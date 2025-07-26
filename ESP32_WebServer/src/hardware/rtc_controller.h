@@ -3,10 +3,9 @@
 
 #include <Arduino.h>
 
-void initRTC();
+void initializeRTC();
 String getCurrentTimestamp();
 bool isRTCWorking();
 unsigned long getUnixTimestamp();
-void setRTCFromCompileTime();  // NOWA FUNKCJA
 
 #endif

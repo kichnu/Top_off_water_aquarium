@@ -3,6 +3,8 @@
 #include "../core/logging.h"
 #include <mbedtls/md.h>
 
+
+
 void initAuthManager() {
     LOG_INFO("Authentication manager initialized");
 }

@@ -2,6 +2,8 @@
 #include "../config/hardware_pins.h"
 #include "../core/logging.h"
 
+
+
 SensorState sensor1;
 SensorState sensor2;
 

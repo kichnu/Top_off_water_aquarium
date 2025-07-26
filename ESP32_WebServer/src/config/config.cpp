@@ -1,5 +1,6 @@
 #include "config.h"
 
+
 const char* WIFI_SSID = "KiG";
 const char* WIFI_PASSWORD = "3YqvXx5s3Z";
 const IPAddress STATIC_IP(192, 168, 0, 164);

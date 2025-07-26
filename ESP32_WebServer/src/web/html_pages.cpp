@@ -1,5 +1,7 @@
 #include "html_pages.h"
 
+
+
 const char* LOGIN_HTML = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -203,15 +205,6 @@ const char* DASHBOARD_HTML = R"rawliteral(
             </div>
         </div>
         
-        <div class="card">
-            <h2>🕐 RTC Management</h2>
-            <div class="pump-controls">
-                <button id="syncBtn" class="button" onclick="syncRTC()">
-                    🔄 Sync RTC Time
-                </button>
-            </div>
-        </div>
-        
         <div id="notifications"></div>
     </div>
 
@@ -292,28 +285,6 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 .finally(() => {
                     btn.disabled = false;
                     btn.textContent = '🛑 Stop Pump';
-                    updateStatus();
-                });
-        }
-        
-        function syncRTC() {
-            const btn = document.getElementById('syncBtn');
-            btn.disabled = true;
-            btn.textContent = 'Syncing...';
-            
-            fetch('/api/rtc/sync', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification('RTC synchronized: ' + data.current_time, 'success');
-                    } else {
-                        showNotification('Failed to sync RTC', 'error');
-                    }
-                })
-                .catch(() => showNotification('Connection error', 'error'))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.textContent = '🔄 Sync RTC Time';
                     updateStatus();
                 });
         }

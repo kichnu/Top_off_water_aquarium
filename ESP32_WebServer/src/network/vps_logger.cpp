@@ -7,6 +7,8 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
+
+
 void initVPSLogger() {
     LOG_INFO("VPS Logger initialized - endpoint: %s", VPS_URL);
 }

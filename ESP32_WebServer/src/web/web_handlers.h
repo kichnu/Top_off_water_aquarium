@@ -11,6 +11,5 @@ void handleStatus(AsyncWebServerRequest* request);
 void handlePumpNormal(AsyncWebServerRequest* request);
 void handlePumpExtended(AsyncWebServerRequest* request);
 void handlePumpStop(AsyncWebServerRequest* request);
-void handleRTCSync(AsyncWebServerRequest* request);  // NOWA FUNKCJA
 
 #endif

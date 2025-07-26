@@ -11,6 +11,8 @@
 #include "security/rate_limiter.h"
 #include "web/web_server.h"
 
+
+
 #define STATUS_LED_PIN 2
 
 // Global pump settings
@@ -18,6 +20,10 @@
 
 void setup() {
     // Initialize core systems
+
+
+
+
     initLogging();
     
     LOG_INFO("=== ESP32-C3 Water System Starting ===");
@@ -27,7 +33,7 @@ void setup() {
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, HIGH); 
     
-    initRTC();
+    // initRTC();
     initWaterSensors();
     initPumpController();
     
@@ -53,6 +59,10 @@ void setup() {
 }
 
 void loop() {
+
+
+  
+    Serial.printf("start");
     static unsigned long lastUpdate = 0;
     unsigned long now = millis();
     
@@ -84,5 +94,5 @@ void loop() {
         lastBlink = now;
     }
     
-    delay(10); // Small delay to prevent watchdog issues
+    delay(1000); // Small delay to prevent watchdog issues
 }

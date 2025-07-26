@@ -1,6 +1,7 @@
 #include "logging.h"
 #include <stdarg.h>
 
+
 void initLogging() {
     Serial.begin(115200);
     delay(1000);

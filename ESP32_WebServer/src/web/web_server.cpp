@@ -5,9 +5,16 @@
 #include "../security/auth_manager.h"
 #include "../core/logging.h"
 
+
+
 AsyncWebServer server(80);
 
 void initWebServer() {
+
+    
+
+
+
     // Static pages
     server.on("/", HTTP_GET, handleDashboard);
     server.on("/login", HTTP_GET, handleLoginPage);
@@ -21,7 +28,6 @@ void initWebServer() {
     server.on("/api/pump/normal", HTTP_POST, handlePumpNormal);
     server.on("/api/pump/extended", HTTP_POST, handlePumpExtended);
     server.on("/api/pump/stop", HTTP_POST, handlePumpStop);
-    server.on("/api/rtc/sync", HTTP_POST, handleRTCSync);  // NOWA FUNKCJA
     
     // 404 handler
     server.onNotFound([](AsyncWebServerRequest* request) {
@@ -30,6 +36,8 @@ void initWebServer() {
     
     server.begin();
     LOG_INFO("Web server started on port 80");
+
+  
 }
 
 bool checkAuthentication(AsyncWebServerRequest* request) {

@@ -5,6 +5,8 @@
 #include <map>
 #include <vector>
 
+
+
 struct RateLimitData {
     std::vector<unsigned long> requestTimes;
     int failedAttempts;

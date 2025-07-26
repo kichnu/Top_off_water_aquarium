@@ -12,6 +12,7 @@
 #include "../core/logging.h"
 #include <ArduinoJson.h>
 
+
 void handleDashboard(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
         request->redirect("/login");
@@ -152,24 +153,4 @@ void handlePumpStop(AsyncWebServerRequest* request) {
     request->send(200, "application/json", response);
     
     LOG_INFO("Pump manually stopped via web");
-}
-
-void handleRTCSync(AsyncWebServerRequest* request) {
-    if (!checkAuthentication(request)) {
-        request->send(401, "text/plain", "Unauthorized");
-        return;
-    }
-    
-    setRTCFromCompileTime();
-    
-    JsonDocument json;
-    json["success"] = true;
-    json["message"] = "RTC synchronized with compile time";
-    json["current_time"] = getCurrentTimestamp();
-    
-    String response;
-    serializeJson(json, response);
-    request->send(200, "application/json", response);
-    
-    LOG_INFO("RTC manually synchronized via web interface");
 }
