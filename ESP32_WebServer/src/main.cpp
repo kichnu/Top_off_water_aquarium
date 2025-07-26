@@ -21,9 +21,11 @@
 void setup() {
     // Initialize core systems
 
-
-
-
+    delay(6000);
+    
+    
+    
+    
     initLogging();
     
     LOG_INFO("=== ESP32-C3 Water System Starting ===");
@@ -32,10 +34,11 @@ void setup() {
     // Initialize hardware
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, HIGH); 
-    
-    // initRTC();
     initWaterSensors();
     initPumpController();
+    
+    // initRTC();
+    initializeRTC();
     
     // Initialize security
     initAuthManager();
@@ -55,14 +58,12 @@ void setup() {
     if (isWiFiConnected()) {
         LOG_INFO("Dashboard: http://%s", getLocalIP().toString().c_str());
     }
-    LOG_INFO("Current time: %s", getCurrentTimestamp().c_str());
+    // LOG_INFO("Current time: %s", getCurrentTimestamp().c_str());
 }
 
 void loop() {
 
 
-  
-    Serial.printf("start");
     static unsigned long lastUpdate = 0;
     unsigned long now = millis();
     
@@ -94,5 +95,5 @@ void loop() {
         lastBlink = now;
     }
     
-    delay(1000); // Small delay to prevent watchdog issues
+    delay(100); // Small delay to prevent watchdog issues
 }
