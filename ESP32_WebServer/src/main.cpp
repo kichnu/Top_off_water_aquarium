@@ -11,20 +11,11 @@
 #include "security/rate_limiter.h"
 #include "web/web_server.h"
 
-
-
 #define STATUS_LED_PIN 2
-
-// Global pump settings
-
 
 void setup() {
     // Initialize core systems
-
     delay(6000);
-    
-    
-    
     
     initLogging();
     
@@ -37,8 +28,9 @@ void setup() {
     initWaterSensors();
     initPumpController();
     
-    // initRTC();
+    // Initialize RTC (now with proper error handling)
     initializeRTC();
+    LOG_INFO("RTC Status: %s", getRTCInfo().c_str());
     
     // Initialize security
     initAuthManager();
@@ -58,12 +50,10 @@ void setup() {
     if (isWiFiConnected()) {
         LOG_INFO("Dashboard: http://%s", getLocalIP().toString().c_str());
     }
-    // LOG_INFO("Current time: %s", getCurrentTimestamp().c_str());
+    LOG_INFO("Current time: %s", getCurrentTimestamp().c_str());
 }
 
 void loop() {
-
-
     static unsigned long lastUpdate = 0;
     unsigned long now = millis();
     

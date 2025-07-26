@@ -7,5 +7,6 @@ void initializeRTC();
 String getCurrentTimestamp();
 bool isRTCWorking();
 unsigned long getUnixTimestamp();
+String getRTCInfo(); // New diagnostic function
 
 #endif

@@ -297,7 +297,12 @@ const char* DASHBOARD_HTML = R"rawliteral(
                     document.getElementById('pumpStatus').textContent = data.pump_running ? 
                         `Active (${data.pump_remaining}s remaining)` : 'Inactive';
                     document.getElementById('wifiStatus').textContent = data.wifi_status;
-                    document.getElementById('rtcTime').textContent = data.rtc_time || 'Error';
+                    
+                    // Enhanced RTC display with type information
+                    const rtcText = data.rtc_time || 'Error';
+                    const rtcInfo = data.rtc_info || '';
+                    document.getElementById('rtcTime').innerHTML = `${rtcText}<br><small style="color: #666; font-size: 0.8em;">${rtcInfo}</small>`;
+                    
                     document.getElementById('freeHeap').textContent = (data.free_heap / 1024).toFixed(1) + ' KB';
                     document.getElementById('uptime').textContent = formatUptime(data.uptime);
                     

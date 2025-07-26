@@ -87,6 +87,7 @@ void handleStatus(AsyncWebServerRequest* request) {
     json["wifi_connected"] = isWiFiConnected();
     json["rtc_time"] = getCurrentTimestamp();
     json["rtc_working"] = isRTCWorking();
+    json["rtc_info"] = getRTCInfo(); // Added RTC type information
     json["free_heap"] = ESP.getFreeHeap();
     json["uptime"] = millis();
     json["device_id"] = DEVICE_ID;

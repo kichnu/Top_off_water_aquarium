@@ -3,6 +3,11 @@
 
 #include <IPAddress.h>
 
+// ================= DEBUG & LOGGING CONFIG =================
+// Ustaw na false jeśli masz problemy z stabilnością
+#define ENABLE_FULL_LOGGING true
+#define ENABLE_SERIAL_DEBUG true
+
 // TYLKO DEKLARACJE (extern) - NIE DEFINICJE!
 extern const char* WIFI_SSID;
 extern const char* WIFI_PASSWORD;
