@@ -96,7 +96,8 @@ const char* DASHBOARD_HTML = R"rawliteral(
     <style>
         body { 
             font-family: Arial, sans-serif; margin: 0; padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh;
+            background: #667eea 0%;
+            min-height: 100vh;
         }
         .container { max-width: 1000px; margin: 0 auto; }
         .header { 
@@ -109,28 +110,28 @@ const char* DASHBOARD_HTML = R"rawliteral(
         }
         .logout-btn:hover { background: #c82333; }
         .card { 
-            background: white; padding: 25px; margin: 15px 0; border-radius: 15px; 
+            background: white; padding: 25px; margin: 15px 0; border-radius: 5px; 
             box-shadow: 0 8px 25px rgba(0,0,0,0.15);
         }
         .card h2 { 
             margin-top: 0; color: #333; border-bottom: 3px solid #667eea; 
             padding-bottom: 10px; font-size: 24px;
         }
-        .status-grid { 
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+        .status-grid  { 
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); 
             gap: 15px; margin: 20px 0;
         }
         .status-item { 
             display: flex; justify-content: space-between; align-items: center;
-            padding: 15px; background: #f8f9fa; border-radius: 10px; 
-            border-left: 5px solid #667eea;
+            padding: 15px; background: #dbdee0; border-radius: 5px; 
+            
         }
-        .status-label { font-weight: bold; color: #333; }
-        .status-value { font-weight: bold; color: #667eea; }
+        .status-label { font-weight: bold; color: #333;  }
+        .status-value { font-weight: bold; color: #333;}
         .button { 
             background: #28a745; color: white; border: none; padding: 15px 25px; 
-            border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold; 
-            margin: 10px 5px; transition: all 0.3s; min-width: 150px;
+            border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; 
+            margin: 10px 5px; transition: all 0.3s; min-width: 150px; width: 30%;
         }
         .button:hover { background: #218838; transform: translateY(-2px); }
         .button:disabled { background: #6c757d; cursor: not-allowed; transform: none; }
@@ -143,13 +144,33 @@ const char* DASHBOARD_HTML = R"rawliteral(
         }
         .alert.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .alert.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .pump-controls { 
-            display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px;
+        .pump-controls{ 
+             display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
         }
+        .pomp-setting{
+            display: flex; flex-wrap: wrap; justify-content: space-around; align-items: center;
+
+        }
+        .pump-setting-form{
+             display: flex; align-items: center; justify-content: center; gap: 15px; margin: 20px 0;
+        }
+        .pump-setting-form > label{
+             font-weight: bold; font-size: 18px;
+        }
+        .pump-setting-form > input{
+            padding: 8px; font-size: 18px; border: 2px solid #ddd; border-radius: 5px; width: 50px;
+        }
+        .pump-setting-form > button{
+            background: #3498db; color: white; font-size: 18px; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;
+
+        }
+
+
         @media (max-width: 600px) {
             .status-grid { grid-template-columns: 1fr; }
-            .pump-controls { flex-direction: column; }
-            .button { width: 100%; margin: 5px 0; }
+            .pump-controls, .pomp-setting { flex-direction: column; }
+            .button { width: 100%; margin: 5px 0; 
+            }
         }
     </style>
 </head>
@@ -157,11 +178,11 @@ const char* DASHBOARD_HTML = R"rawliteral(
     <div class="container">
         <div class="header">
             <button class="logout-btn" onclick="logout()">Logout</button>
-            <h1>🌱 ESP32-C3 Water System</h1>
+            <h1> Top Off Water - System</h1>
         </div>
         
         <div class="card">
-            <h2>📊 System Status</h2>
+            <h2>System Status</h2>
             <div class="status-grid">
                 <div class="status-item">
                     <span class="status-label">Water Level:</span>
@@ -191,17 +212,34 @@ const char* DASHBOARD_HTML = R"rawliteral(
         </div>
         
         <div class="card">
-            <h2>⚡ Pump Control</h2>
+            <h2>Pump Control</h2>
             <div class="pump-controls">
                 <button id="normalBtn" class="button" onclick="triggerNormalPump()">
-                    💧 Normal Cycle
-                </button>
-                <button id="extendedBtn" class="button extended" onclick="triggerExtendedPump()">
-                    ⏰ Extended Cycle  
+                    Normal Cycle
                 </button>
                 <button id="stopBtn" class="button danger" onclick="stopPump()">
-                    🛑 Stop Pump
+                    Stop Pump
                 </button>
+                <button id="extendedBtn" class="button extended" onclick="triggerExtendedPump()">
+                    Pump Calibration (30s) 
+                </button>
+            </div>
+        </div>
+
+
+        <div class="card">
+            <h2>Pump Setting</h2>
+            <div class="pump-setting">
+                <form id="volumeForm" onsubmit="updateVolumePerSecond(event)">
+                    <div class="pump-setting-form">
+                        <label for="volumePerSecond">Volume per Second (ml):</label>
+                        <input type="number" id="volumePerSecond" name="volumePerSecond " min="1" max="1000" value="1" required >
+                            <button type="submit">
+                                    Update Setting
+                            </button>
+                            <span id="volumeStatus" style="font-size: 12px; color: #666;"></span>
+                     </div>
+                 </form>
             </div>
         </div>
         
@@ -240,7 +278,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 .catch(() => showNotification('Connection error', 'error'))
                 .finally(() => {
                     btn.disabled = false;
-                    btn.textContent = '💧 Normal Cycle';
+                    btn.textContent = 'Normal Cycle';
                     updateStatus();
                 });
         }
@@ -262,7 +300,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 .catch(() => showNotification('Connection error', 'error'))
                 .finally(() => {
                     btn.disabled = false;
-                    btn.textContent = '⏰ Extended Cycle';
+                    btn.textContent = 'Extended Cycle';
                     updateStatus();
                 });
         }
@@ -284,7 +322,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 .catch(() => showNotification('Connection error', 'error'))
                 .finally(() => {
                     btn.disabled = false;
-                    btn.textContent = '🛑 Stop Pump';
+                    btn.textContent = 'Stop Pump';
                     updateStatus();
                 });
         }

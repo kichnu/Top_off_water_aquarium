@@ -30,8 +30,8 @@ const unsigned long BLOCK_DURATION_MS = 60000;
 
 struct PumpSettings {
     uint16_t normalCycleSeconds = 15;
-    uint16_t extendedCycleSeconds = 60;
-    uint16_t volumePerSecond = 100;
+    uint16_t extendedCycleSeconds = 30;
+    uint16_t volumePerSecond = 1;
     bool autoModeEnabled = true;
 };
 

@@ -39,6 +39,8 @@ void updatePumpController() {
 }
 
 bool triggerPump(uint16_t durationSeconds, const String& actionType) {
+
+    LOG_INFO("%s", "TRigger pump");
     if (pumpRunning) {
         LOG_WARNING("Pump already running, ignoring trigger");
         return false;

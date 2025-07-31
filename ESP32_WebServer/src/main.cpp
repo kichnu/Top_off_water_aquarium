@@ -10,8 +10,9 @@
 #include "security/session_manager.h"
 #include "security/rate_limiter.h"
 #include "web/web_server.h"
+#include "config/hardware_pins.h"
 
-#define STATUS_LED_PIN 2
+
 
 void setup() {
     // Initialize core systems
@@ -84,6 +85,7 @@ void loop() {
         digitalWrite(STATUS_LED_PIN, !digitalRead(STATUS_LED_PIN));
         lastBlink = now;
     }
+    
     
     delay(100); // Small delay to prevent watchdog issues
 }
