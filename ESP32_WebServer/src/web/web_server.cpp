@@ -28,6 +28,8 @@ void initWebServer() {
     server.on("/api/pump/normal", HTTP_POST, handlePumpNormal);
     server.on("/api/pump/extended", HTTP_POST, handlePumpExtended);
     server.on("/api/pump/stop", HTTP_POST, handlePumpStop);
+
+    server.on("/api/pump-settings", HTTP_GET | HTTP_POST, handlePumpSettings);
     
     // 404 handler
     server.onNotFound([](AsyncWebServerRequest* request) {

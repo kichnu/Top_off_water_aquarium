@@ -326,6 +326,69 @@ const char* DASHBOARD_HTML = R"rawliteral(
                     updateStatus();
                 });
         }
+
+
+
+
+
+                // Load current volume setting
+        function loadVolumePerSecond() {
+            fetch('/api/pump-settings')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('volumePerSecond').value = data.volume_per_second;
+                        document.getElementById('volumeStatus').textContent = `Current: ${data.volume_per_second} ml/s`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to load volume setting:', error);
+                    document.getElementById('volumeStatus').textContent = 'Failed to load current setting';
+                });
+        }
+
+        // Update volume per second
+        function updateVolumePerSecond(event) {
+            event.preventDefault();
+            
+            const volumeInput = document.getElementById('volumePerSecond');
+            const statusSpan = document.getElementById('volumeStatus');
+            const volumeValue = parseInt(volumeInput.value);
+            
+            if (volumeValue < 1 || volumeValue > 1000) {
+                statusSpan.textContent = 'Error: Value must be between 1-1000';
+                statusSpan.style.color = '#e74c3c';
+                return;
+            }
+            
+            statusSpan.textContent = 'Updating...';
+            statusSpan.style.color = '#f39c12';
+            
+            // ZMIANA: Form data zamiast JSON
+            const formData = new FormData();
+            formData.append('volume_per_second', volumeValue);
+            
+            fetch('/api/pump-settings', {
+                method: 'POST',
+                body: formData  // ← Form data, nie JSON
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    statusSpan.textContent = `Updated: ${volumeValue} ml/s`;
+                    statusSpan.style.color = '#27ae60';
+                } else {
+                    statusSpan.textContent = `Error: ${data.error || 'Update failed'}`;
+                    statusSpan.style.color = '#e74c3c';
+                }
+            })
+            .catch(error => {
+                statusSpan.textContent = 'Network error';
+                statusSpan.style.color = '#e74c3c';
+            });
+        }
+
+                          
         
         function updateStatus() {
             fetch('/api/status')
@@ -353,6 +416,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 .catch(error => {
                     console.error('Status update failed:', error);
                 });
+            loadVolumePerSecond();        
         }
         
         function formatUptime(milliseconds) {

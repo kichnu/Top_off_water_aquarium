@@ -155,3 +155,52 @@ void handlePumpStop(AsyncWebServerRequest* request) {
     
     LOG_INFO("Pump manually stopped via web");
 }
+
+void handlePumpSettings(AsyncWebServerRequest* request) {
+    if (!checkAuthentication(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    
+    if (request->method() == HTTP_GET) {
+        // Return current settings
+        JsonDocument json;
+        json["success"] = true;
+        json["volume_per_second"] = currentPumpSettings.volumePerSecond;
+        json["normal_cycle"] = currentPumpSettings.normalCycleSeconds;
+        json["extended_cycle"] = currentPumpSettings.extendedCycleSeconds;
+        json["auto_mode"] = currentPumpSettings.autoModeEnabled;
+        
+        String response;
+        serializeJson(json, response);
+        request->send(200, "application/json", response);
+        
+    } else if (request->method() == HTTP_POST) {
+        // ZMIANA: Form parameter zamiast JSON body
+        if (!request->hasParam("volume_per_second", true)) {
+            request->send(400, "application/json", "{\"success\":false,\"error\":\"No volume_per_second parameter\"}");
+            return;
+        }
+        
+        String volumeStr = request->getParam("volume_per_second", true)->value();
+        uint16_t newVolume = volumeStr.toInt();
+        
+        if (newVolume < 1 || newVolume > 1000) {
+            request->send(400, "application/json", "{\"success\":false,\"error\":\"Value must be between 1-1000\"}");
+            return;
+        }
+        
+        currentPumpSettings.volumePerSecond = newVolume;
+        
+        LOG_INFO("Volume per second updated to %d ml/s", newVolume);
+        
+        JsonDocument response;
+        response["success"] = true;
+        response["volume_per_second"] = newVolume;
+        response["message"] = "Volume per second updated successfully";
+        
+        String responseStr;
+        serializeJson(response, responseStr);
+        request->send(200, "application/json", responseStr);
+    }
+}
