@@ -233,12 +233,10 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 <form id="volumeForm" onsubmit="updateVolumePerSecond(event)">
                     <div class="pump-setting-form">
                         <label for="volumePerSecond">Volume per Second (ml):</label>
-                        <input type="number" id="volumePerSecond" name="volumePerSecond " min="1" max="1000" value="1" required >
-                            <button type="submit">
-                                    Update Setting
-                            </button>
-                            <span id="volumeStatus" style="font-size: 12px; color: #666;"></span>
-                     </div>
+                        <input type="number" id="volumePerSecond" name="volumePerSecond" min="0.1" max="20.0" step="0.1" value="1.0" required>
+                        <button type="submit">Update Setting</button>
+                        <span id="volumeStatus" style="font-size: 12px; color: #666;"></span>
+                    </div>
                  </form>
             </div>
         </div>
@@ -338,7 +336,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 .then(data => {
                     if (data.success) {
                         document.getElementById('volumePerSecond').value = data.volume_per_second;
-                        document.getElementById('volumeStatus').textContent = `Current: ${data.volume_per_second} ml/s`;
+                        document.getElementById('volumeStatus').textContent = `Current: ${parseFloat(data.volume_per_second).toFixed(1)} ml/s`;
                     }
                 })
                 .catch(error => {
@@ -353,10 +351,10 @@ const char* DASHBOARD_HTML = R"rawliteral(
             
             const volumeInput = document.getElementById('volumePerSecond');
             const statusSpan = document.getElementById('volumeStatus');
-            const volumeValue = parseInt(volumeInput.value);
+            const volumeValue = parseFloat(volumeInput.value);
             
-            if (volumeValue < 1 || volumeValue > 1000) {
-                statusSpan.textContent = 'Error: Value must be between 1-1000';
+            if (volumeValue < 0.1 || volumeValue > 20) {
+                statusSpan.textContent = 'Error: Value must be between 0.1-20';
                 statusSpan.style.color = '#e74c3c';
                 return;
             }
@@ -375,7 +373,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    statusSpan.textContent = `Updated: ${volumeValue} ml/s`;
+                    statusSpan.textContent = `Updated: ${volumeValue.toFixed(1)} ml/s`;
                     statusSpan.style.color = '#27ae60';
                 } else {
                     statusSpan.textContent = `Error: ${data.error || 'Update failed'}`;
@@ -416,7 +414,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 .catch(error => {
                     console.error('Status update failed:', error);
                 });
-            loadVolumePerSecond();        
+            // loadVolumePerSecond();        
         }
         
         function formatUptime(milliseconds) {

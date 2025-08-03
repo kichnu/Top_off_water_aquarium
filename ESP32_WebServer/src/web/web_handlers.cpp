@@ -183,16 +183,16 @@ void handlePumpSettings(AsyncWebServerRequest* request) {
         }
         
         String volumeStr = request->getParam("volume_per_second", true)->value();
-        uint16_t newVolume = volumeStr.toInt();
+        float newVolume = volumeStr.toFloat();
         
-        if (newVolume < 1 || newVolume > 1000) {
-            request->send(400, "application/json", "{\"success\":false,\"error\":\"Value must be between 1-1000\"}");
+        if (newVolume < 0.1 || newVolume > 20) {
+            request->send(400, "application/json", "{\"success\":false,\"error\":\"Value must be between 0.1-20\"}");
             return;
         }
         
         currentPumpSettings.volumePerSecond = newVolume;
         
-        LOG_INFO("Volume per second updated to %d ml/s", newVolume);
+        LOG_INFO("Volume per second updated to %.1f ml/s", newVolume);
         
         JsonDocument response;
         response["success"] = true;

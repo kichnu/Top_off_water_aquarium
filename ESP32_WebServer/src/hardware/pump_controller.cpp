@@ -4,6 +4,7 @@
 #include "../network/vps_logger.h"
 #include "../hardware/rtc_controller.h"
 #include "../core/logging.h"
+#include <math.h>
 
 
 
@@ -27,7 +28,8 @@ void updatePumpController() {
         pumpRunning = false;
         
         uint16_t actualDuration = (millis() - pumpStartTime) / 1000;
-        uint16_t volumeML = actualDuration * currentPumpSettings.volumePerSecond;
+        // uint16_t volumeML = actualDuration * currentPumpSettings.volumePerSecond;
+        uint16_t volumeML = (uint16_t)round(actualDuration * currentPumpSettings.volumePerSecond);
         
         LOG_INFO("Pump stopped after %d seconds, estimated volume: %d ml", 
                  actualDuration, volumeML);
