@@ -22,12 +22,22 @@ void setup() {
     
     LOG_INFO("=== ESP32-C3 Water System Starting ===");
     LOG_INFO("Device ID: %s", DEVICE_ID);
+
+    // Check NVS partition
+    LOG_INFO("ESP32 Flash size: %d bytes", ESP.getFlashChipSize());
+    LOG_INFO("Free heap: %d bytes", ESP.getFreeHeap());
+
+    
     
     // Initialize hardware
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, HIGH); 
     initWaterSensors();
     initPumpController();
+
+    // Initialize and load settings from NVS
+    initNVS();
+    loadVolumeFromNVS();
     
     // Initialize RTC (now with proper error handling)
     initializeRTC();

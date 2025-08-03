@@ -1,4 +1,6 @@
 #include "config.h"
+#include <Preferences.h>
+#include "../core/logging.h"
 
 
 const char* WIFI_SSID = "KiG";
@@ -24,3 +26,61 @@ const char* VPS_AUTH_TOKEN = "sha256:7b4f8a9c2e6d5a1b8f7e4c9a6d3b2f8e5c1a7b4f9e6
 const char* DEVICE_ID = "ESP32C3_WaterPump_001";
 
 PumpSettings currentPumpSettings;
+
+// ================= NVS (Preferences) Functions =================
+Preferences preferences;
+bool preferencesInitialized = false;
+
+void initNVS() {
+    // Tylko informacja - nie inicjalizujemy tutaj
+    LOG_INFO("NVS (Preferences) ready");
+}
+
+void loadVolumeFromNVS() {
+    if (!preferences.begin("pump_settings", true)) { // true = readonly
+        LOG_ERROR("Failed to open preferences for reading");
+        LOG_INFO("Using default volumePerSecond: %.1f", currentPumpSettings.volumePerSecond);
+        return;
+    }
+    
+    float savedVolume = preferences.getFloat("vol_per_sec", 0.0);
+    preferences.end(); // WAŻNE: zamknij po odczycie
+    
+    if (savedVolume > 0.0 && savedVolume >= 0.1 && savedVolume <= 20.0) {
+        currentPumpSettings.volumePerSecond = savedVolume;
+        LOG_INFO("Loaded volumePerSecond from NVS: %.1f ml/s", savedVolume);
+    } else {
+        LOG_INFO("No valid volumePerSecond in NVS, using default: %.1f ml/s", currentPumpSettings.volumePerSecond);
+    }
+}
+
+void saveVolumeToNVS() {
+    // Delay żeby flash miał czas
+    delay(10);
+    
+    if (!preferences.begin("pump_settings", false)) {
+        LOG_ERROR("Failed to open preferences for writing - retrying...");
+        delay(50);
+        if (!preferences.begin("pump_settings", false)) {
+            LOG_ERROR("Retry failed - skipping save");
+            return;
+        }
+    }
+    
+    bool success = preferences.putFloat("vol_per_sec", currentPumpSettings.volumePerSecond);
+    preferences.end();
+    
+    if (success) {
+        LOG_INFO("SUCCESS: Saved volumePerSecond to NVS: %.1f ml/s", currentPumpSettings.volumePerSecond);
+    } else {
+        LOG_ERROR("FAILED: Could not save volumePerSecond to NVS");
+    }
+    
+    // Verify save by reading back
+    delay(10);
+    if (preferences.begin("pump_settings", true)) {
+        float readBack = preferences.getFloat("vol_per_sec", 0.0);
+        preferences.end();
+        LOG_INFO("Verification read: %.1f ml/s", readBack);
+    }
+}

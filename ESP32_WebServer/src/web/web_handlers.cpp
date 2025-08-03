@@ -191,6 +191,9 @@ void handlePumpSettings(AsyncWebServerRequest* request) {
         }
         
         currentPumpSettings.volumePerSecond = newVolume;
+
+        // Save to NVS (non-volatile storage)
+        saveVolumeToNVS();
         
         LOG_INFO("Volume per second updated to %.1f ml/s", newVolume);
         

@@ -35,6 +35,10 @@ struct PumpSettings {
     bool autoModeEnabled = true;
 };
 
+void loadVolumeFromNVS();
+void saveVolumeToNVS();
+void initNVS();
+
 extern PumpSettings currentPumpSettings;
 
 #endif
