@@ -22,6 +22,15 @@ void initPumpController() {
 }
 
 void updatePumpController() {
+
+        // Check global pump state - stop if disabled
+    if (!pumpGlobalEnabled && pumpRunning) {
+        digitalWrite(PUMP_RELAY_PIN, LOW);
+        pumpRunning = false;
+        LOG_INFO("Pump stopped - globally disabled");
+        return;
+    }
+
     if (pumpRunning && (millis() - pumpStartTime >= pumpDuration)) {
         // Stop pump and log event
         digitalWrite(PUMP_RELAY_PIN, LOW);
@@ -45,6 +54,11 @@ bool triggerPump(uint16_t durationSeconds, const String& actionType) {
     LOG_INFO("%s", "TRigger pump");
     if (pumpRunning) {
         LOG_WARNING("Pump already running, ignoring trigger");
+        return false;
+    }
+
+        if (!pumpGlobalEnabled) {
+        LOG_INFO("Pump trigger blocked - globally disabled");
         return false;
     }
     

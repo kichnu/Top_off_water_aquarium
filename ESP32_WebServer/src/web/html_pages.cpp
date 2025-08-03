@@ -135,10 +135,12 @@ const char* DASHBOARD_HTML = R"rawliteral(
         }
         .button:hover { background: #218838; transform: translateY(-2px); }
         .button:disabled { background: #6c757d; cursor: not-allowed; transform: none; }
-        .button.extended { background: #ffc107; color: #333; }
-        .button.extended:hover { background: #e0a800; }
+        .button.on-off { background: #ffc107; color: #333; }
+        .button.on-off:hover { background: #e0a800; }
         .button.danger { background: #dc3545; }
         .button.danger:hover { background: #c82333; }
+        .btn-calibration { background: #ddd; color: #333; width: 25%; margin-right: 25px;}
+        .btn-calibration:hover { background: #ccc; }
         .alert { 
             padding: 15px; margin: 15px 0; border-radius: 10px; font-weight: bold; 
         }
@@ -147,12 +149,12 @@ const char* DASHBOARD_HTML = R"rawliteral(
         .pump-controls{ 
              display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
         }
-        .pomp-setting{
-            display: flex; flex-wrap: wrap; justify-content: space-around; align-items: center;
+        .pump-setting{
+            display: flex; flex-direction: row;
 
         }
         .pump-setting-form{
-             display: flex; align-items: center; justify-content: center; gap: 15px; margin: 20px 0;
+             display: flex; align-items: center; justify-content: center; gap: 15px;
         }
         .pump-setting-form > label{
              font-weight: bold; font-size: 18px;
@@ -220,8 +222,8 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 <button id="stopBtn" class="button danger" onclick="stopPump()">
                     Stop Pump
                 </button>
-                <button id="extendedBtn" class="button extended" onclick="triggerExtendedPump()">
-                    Pump Calibration (30s) 
+                <button id="onOffBtn" class="button on-off" onclick="togglePumpGlobal()">
+                    Pump ON
                 </button>
             </div>
         </div>
@@ -230,10 +232,14 @@ const char* DASHBOARD_HTML = R"rawliteral(
         <div class="card">
             <h2>Pump Setting</h2>
             <div class="pump-setting">
-                <form id="volumeForm" onsubmit="updateVolumePerSecond(event)">
+
+                <button id="extendedBtn" class="button btn-calibration" onclick="triggerExtendedPump()">
+                    Pump Calibration (30s) 
+                </button>
+                <form class="pump-setting-form" id="volumeForm" onsubmit="updateVolumePerSecond(event)">
                     <div class="pump-setting-form">
                         <label for="volumePerSecond">Volume per Second (ml):</label>
-                        <input type="number" id="volumePerSecond" name="volumePerSecond" min="0.1" max="20.0" step="0.1" value="1.0" required>
+                        <input type="number" id="volumePerSecond" name="volumePerSecond" min="0.1" max="20.0" step="0.1" value="1.0" required placeholder="Loading...">
                         <button type="submit">Update Setting</button>
                         <span id="volumeStatus" style="font-size: 12px; color: #666;"></span>
                     </div>
@@ -329,13 +335,14 @@ const char* DASHBOARD_HTML = R"rawliteral(
 
 
 
-                // Load current volume setting
+        // Load current volume setting
         function loadVolumePerSecond() {
             fetch('/api/pump-settings')
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        document.getElementById('volumePerSecond').value = data.volume_per_second;
+                        // Update input value to current saved value
+                        document.getElementById('volumePerSecond').value = parseFloat(data.volume_per_second).toFixed(1);
                         document.getElementById('volumeStatus').textContent = `Current: ${parseFloat(data.volume_per_second).toFixed(1)} ml/s`;
                     }
                 })
@@ -345,7 +352,7 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 });
         }
 
-        // Update volume per second
+        // Update volume per second with confirmation
         function updateVolumePerSecond(event) {
             event.preventDefault();
             
@@ -353,22 +360,32 @@ const char* DASHBOARD_HTML = R"rawliteral(
             const statusSpan = document.getElementById('volumeStatus');
             const volumeValue = parseFloat(volumeInput.value);
             
-            if (volumeValue < 0.1 || volumeValue > 20) {
-                statusSpan.textContent = 'Error: Value must be between 0.1-20';
+            if (volumeValue < 0.1 || volumeValue > 20.0) {
+                statusSpan.textContent = 'Error: Value must be between 0.1-20.0';
                 statusSpan.style.color = '#e74c3c';
+                return;
+            }
+            
+            // CONFIRMATION POPUP
+            const confirmMessage = `Are you sure you want to change Volume per Second to ${volumeValue.toFixed(1)} ml/s?\n\nThis will affect pump operations and be saved permanently.`;
+            
+            if (!confirm(confirmMessage)) {
+                statusSpan.textContent = 'Update cancelled';
+                statusSpan.style.color = '#f39c12';
+                // Reload original value
+                loadVolumePerSecond();
                 return;
             }
             
             statusSpan.textContent = 'Updating...';
             statusSpan.style.color = '#f39c12';
             
-            // ZMIANA: Form data zamiast JSON
             const formData = new FormData();
             formData.append('volume_per_second', volumeValue);
             
             fetch('/api/pump-settings', {
                 method: 'POST',
-                body: formData  // ← Form data, nie JSON
+                body: formData
             })
             .then(response => response.json())
             .then(data => {
@@ -378,13 +395,73 @@ const char* DASHBOARD_HTML = R"rawliteral(
                 } else {
                     statusSpan.textContent = `Error: ${data.error || 'Update failed'}`;
                     statusSpan.style.color = '#e74c3c';
+                    // Reload original value on error
+                    loadVolumePerSecond();
                 }
             })
             .catch(error => {
                 statusSpan.textContent = 'Network error';
                 statusSpan.style.color = '#e74c3c';
+                // Reload original value on error
+                loadVolumePerSecond();
             });
+        }   
+                    
+                // Global pump control
+        let pumpGlobalEnabled = true;
+
+        function loadPumpGlobalState() {
+            fetch('/api/pump-toggle')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        pumpGlobalEnabled = data.enabled;
+                        updatePumpToggleButton(data.enabled, data.remaining_seconds);
+                    }
+                })
+                .catch(error => console.error('Failed to load pump state:', error));
         }
+
+        function togglePumpGlobal() {
+            const btn = document.getElementById('onOffBtn');
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            
+            fetch('/api/pump-toggle', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        pumpGlobalEnabled = data.enabled;
+                        updatePumpToggleButton(data.enabled, data.remaining_seconds);
+                        showNotification(data.message, 'success');
+                    } else {
+                        showNotification('Failed to toggle pump', 'error');
+                    }
+                })
+                .catch(error => {
+                    showNotification('Network error', 'error');
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                });
+        }
+
+        function updatePumpToggleButton(enabled, remainingSeconds) {
+            const btn = document.getElementById('onOffBtn');
+            
+            if (enabled) {
+                btn.textContent = 'Pump ON';
+                btn.className = 'button on-off enabled';
+                btn.style.backgroundColor = '#27ae60';
+            } else {
+                const minutes = Math.floor(remainingSeconds / 60);
+                const seconds = remainingSeconds % 60;
+                btn.textContent = `Pump OFF (${minutes}:${seconds.toString().padStart(2, '0')})`;
+                btn.className = 'button on-off disabled';
+                btn.style.backgroundColor = '#e74c3c';
+            }
+        }
+
 
                           
         
@@ -434,6 +511,11 @@ const char* DASHBOARD_HTML = R"rawliteral(
         // Auto-refresh every 2 seconds
         setInterval(updateStatus, 2000);
         updateStatus(); // Initial load
+
+        // Auto-update pump state every 30 seconds
+        setInterval(loadPumpGlobalState, 30000);
+
+        loadVolumePerSecond();
     </script>
 </body>
 </html>

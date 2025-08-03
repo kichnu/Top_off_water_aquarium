@@ -9,11 +9,18 @@
 
 
 
+
 void initVPSLogger() {
     LOG_INFO("VPS Logger initialized - endpoint: %s", VPS_URL);
 }
 
 bool logEventToVPS(const String& eventType, uint16_t volumeML, const String& timestamp) {
+
+    // Skip logging if pump globally disabled
+    if (!pumpGlobalEnabled) {
+        return false;
+    }
+
     if (!isWiFiConnected()) {
         LOG_WARNING("WiFi not connected, cannot log to VPS");
         return false;

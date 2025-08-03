@@ -9,6 +9,10 @@ const IPAddress STATIC_IP(192, 168, 0, 164);
 const IPAddress GATEWAY(192, 168, 0, 1);
 const IPAddress SUBNET(255, 255, 255, 0);
 
+bool pumpGlobalEnabled = true;  // Default ON
+unsigned long pumpDisabledTime = 0;
+const unsigned long PUMP_AUTO_ENABLE_MS = 3 * 60 * 1000; // 30 minutes
+
 const char* ADMIN_PASSWORD_HASH = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8";
 
 const IPAddress ALLOWED_IPS[] = {
@@ -82,5 +86,29 @@ void saveVolumeToNVS() {
         float readBack = preferences.getFloat("vol_per_sec", 0.0);
         preferences.end();
         LOG_INFO("Verification read: %.1f ml/s", readBack);
+    }
+}
+
+// ================= Global Pump Control =================
+
+
+void checkPumpAutoEnable() {
+    if (!pumpGlobalEnabled && pumpDisabledTime > 0) {
+        if (millis() - pumpDisabledTime >= PUMP_AUTO_ENABLE_MS) {
+            pumpGlobalEnabled = true;
+            pumpDisabledTime = 0;
+            LOG_INFO("Pump auto-enabled after 30 minutes");
+        }
+    }
+}
+
+void setPumpGlobalState(bool enabled) {
+    pumpGlobalEnabled = enabled;
+    if (!enabled) {
+        pumpDisabledTime = millis();
+        LOG_INFO("Pump globally disabled for 30 minutes");
+    } else {
+        pumpDisabledTime = 0;
+        LOG_INFO("Pump globally enabled");
     }
 }

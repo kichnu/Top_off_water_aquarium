@@ -12,5 +12,6 @@ void handlePumpNormal(AsyncWebServerRequest* request);
 void handlePumpExtended(AsyncWebServerRequest* request);
 void handlePumpStop(AsyncWebServerRequest* request);
 void handlePumpSettings(AsyncWebServerRequest* request);
+void handlePumpToggle(AsyncWebServerRequest* request);
 
 #endif

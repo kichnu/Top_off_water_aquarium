@@ -27,7 +27,7 @@ void setup() {
     LOG_INFO("ESP32 Flash size: %d bytes", ESP.getFlashChipSize());
     LOG_INFO("Free heap: %d bytes", ESP.getFreeHeap());
 
-    
+
     
     // Initialize hardware
     pinMode(STATUS_LED_PIN, OUTPUT);
@@ -70,6 +70,9 @@ void loop() {
     
     // Update water sensors every loop
     updateWaterSensors();
+
+      // Check pump auto-enable timer
+    checkPumpAutoEnable();
     
     // Update other systems every 100ms
     if (now - lastUpdate >= 100) {

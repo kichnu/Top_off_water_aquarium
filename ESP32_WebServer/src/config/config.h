@@ -21,6 +21,12 @@ extern const char* VPS_URL;
 extern const char* VPS_AUTH_TOKEN;
 extern const char* DEVICE_ID;
 
+// Global pump control
+extern bool pumpGlobalEnabled;
+extern unsigned long pumpDisabledTime;
+extern const unsigned long PUMP_AUTO_ENABLE_MS;
+
+
 // Stałe mogą być tutaj
 const unsigned long SESSION_TIMEOUT_MS = 300000;
 const unsigned long RATE_LIMIT_WINDOW_MS = 1000;
@@ -35,10 +41,16 @@ struct PumpSettings {
     bool autoModeEnabled = true;
 };
 
+extern PumpSettings currentPumpSettings;
+
+// Functions
+void checkPumpAutoEnable();
+void setPumpGlobalState(bool enabled);
+
 void loadVolumeFromNVS();
 void saveVolumeToNVS();
 void initNVS();
 
-extern PumpSettings currentPumpSettings;
+
 
 #endif

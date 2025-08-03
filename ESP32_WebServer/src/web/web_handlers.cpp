@@ -11,6 +11,7 @@
 #include "../config/config.h"
 #include "../core/logging.h"
 #include <ArduinoJson.h>
+#include "../config/config.h"
 
 
 void handleDashboard(AsyncWebServerRequest* request) {
@@ -205,5 +206,49 @@ void handlePumpSettings(AsyncWebServerRequest* request) {
         String responseStr;
         serializeJson(response, responseStr);
         request->send(200, "application/json", responseStr);
+    }
+}
+
+void handlePumpToggle(AsyncWebServerRequest* request) {
+    if (!checkAuthentication(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    
+    if (request->method() == HTTP_GET) {
+        // Return current state
+        JsonDocument json;
+        json["success"] = true;
+        json["enabled"] = pumpGlobalEnabled;
+        
+        if (!pumpGlobalEnabled && pumpDisabledTime > 0) {
+            unsigned long remaining = PUMP_AUTO_ENABLE_MS - (millis() - pumpDisabledTime);
+            json["remaining_seconds"] = remaining / 1000;
+        } else {
+            json["remaining_seconds"] = 0;
+        }
+        
+        String response;
+        serializeJson(json, response);
+        request->send(200, "application/json", response);
+        
+    } else if (request->method() == HTTP_POST) {
+        // Toggle pump state
+        setPumpGlobalState(!pumpGlobalEnabled);
+        
+        JsonDocument json;
+        json["success"] = true;
+        json["enabled"] = pumpGlobalEnabled;
+        json["message"] = pumpGlobalEnabled ? "Pump enabled" : "Pump disabled for 30 minutes";
+        
+        if (!pumpGlobalEnabled) {
+            json["remaining_seconds"] = PUMP_AUTO_ENABLE_MS / 1000;
+        } else {
+            json["remaining_seconds"] = 0;
+        }
+        
+        String response;
+        serializeJson(json, response);
+        request->send(200, "application/json", response);
     }
 }
