@@ -11,6 +11,7 @@
 #include "security/rate_limiter.h"
 #include "web/web_server.h"
 #include "config/hardware_pins.h"
+#include "hardware/fram_controller.h" 
 
 
 
@@ -36,8 +37,19 @@ void setup() {
     initPumpController();
 
     // Initialize and load settings from NVS
-    initNVS();
-    loadVolumeFromNVS();
+    // initNVS();
+    // loadVolumeFromNVS();
+
+    // This now initializes FRAM
+
+    initNVS(); 
+    
+    // DODAJ TEST FRAM (opcjonalnie, usuń po weryfikacji):
+    #ifdef DEBUG_BUILD
+        testFRAM();  // Run FRAM test in debug mode
+    #endif
+    
+    loadVolumeFromNVS(); 
     
     // Initialize RTC (now with proper error handling)
     initializeRTC();
