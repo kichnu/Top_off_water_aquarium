@@ -10,8 +10,8 @@
 #define RTC_SCL_PIN         7            // DS3231M I2C SCL
 
 // ============== PINY SYSTEMOWE ==============
-#define ERROR_SIGNAL_PIN    20   // Pin sygnalizacji błędów ERR0/1/2
-#define RESET_PIN          21  // Pin fizycznego resetu
+#define ERROR_SIGNAL_PIN    9   // Pin sygnalizacji błędów ERR0/1/2
+#define RESET_PIN          10  // Pin fizycznego resetu
 
 
 // // Timing constants

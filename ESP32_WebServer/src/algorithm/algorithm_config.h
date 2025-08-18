@@ -50,9 +50,9 @@ enum ErrorCode {
 struct PumpCycle {
     uint32_t timestamp;        // Unix timestamp rozpoczęcia
     uint32_t trigger_time;     // Czas aktywacji TRIGGER
-    uint16_t time_gap_1;       // Czas między T1 i T2 (opadanie)
-    uint16_t time_gap_2;       // Czas między T1 i T2 (podnoszenie)
-    uint16_t water_trigger_time; // Czas reakcji czujników na pompę
+    uint32_t time_gap_1;       // Czas między T1 i T2 (opadanie)
+    uint32_t time_gap_2;       // Czas między T1 i T2 (podnoszenie)
+    uint32_t water_trigger_time; // Czas reakcji czujników na pompę
     uint16_t pump_duration;    // Rzeczywisty czas pracy pompy
     uint8_t  pump_attempts;    // Liczba prób pompy
     uint8_t  sensor_results;   // Flagi wyników (bity 0-2)

@@ -17,6 +17,7 @@ WaterAlgorithm::WaterAlgorithm() {
     errorSignalActive = false;
     lastSensor1State = false;
     lastSensor2State = false;
+    todayCycles.clear(); //nowa metoda
     
     pinMode(ERROR_SIGNAL_PIN, OUTPUT);
     digitalWrite(ERROR_SIGNAL_PIN, LOW);
@@ -278,17 +279,20 @@ void WaterAlgorithm::onSensorStateChange(uint8_t sensorNum, bool triggered) {
     }
 }
 
+
+
+
 void WaterAlgorithm::calculateTimeGap1() {
     if (sensor1TriggerTime && sensor2TriggerTime) {
         currentCycle.time_gap_1 = abs((int32_t)sensor2TriggerTime - 
-                                      (int32_t)sensor1TriggerTime) / 1000;
+                                      (int32_t)sensor1TriggerTime); // <-- BEZ dzielenia przez 1000
     }
 }
 
 void WaterAlgorithm::calculateTimeGap2() {
     if (sensor1ReleaseTime && sensor2ReleaseTime) {
         currentCycle.time_gap_2 = abs((int32_t)sensor2ReleaseTime - 
-                                      (int32_t)sensor1ReleaseTime) / 1000;
+                                      (int32_t)sensor1ReleaseTime); // <-- BEZ dzielenia przez 1000
     }
 }
 
@@ -312,6 +316,37 @@ void WaterAlgorithm::calculateWaterTrigger() {
         }
     }
 }
+
+// void WaterAlgorithm::calculateWaterTrigger() {
+//     uint32_t earliestRelease = 0;
+    
+//     // Only consider releases that happened AFTER pump started
+//     if (sensor1ReleaseTime > pumpStartTime && sensor1ReleaseTime > 0) {
+//         earliestRelease = sensor1ReleaseTime;
+//     }
+//     if (sensor2ReleaseTime > pumpStartTime && sensor2ReleaseTime > 0) {
+//         if (earliestRelease == 0 || sensor2ReleaseTime < earliestRelease) {
+//             earliestRelease = sensor2ReleaseTime;
+//         }
+//     }
+    
+//     if (earliestRelease > 0 && pumpStartTime > 0) {
+//         currentCycle.water_trigger_time = (earliestRelease - pumpStartTime) / 1000;
+        
+//         // Sanity check - if more than WATER_TRIGGER_MAX_TIME, cap it
+//         if (currentCycle.water_trigger_time > WATER_TRIGGER_MAX_TIME) {
+//             currentCycle.water_trigger_time = WATER_TRIGGER_MAX_TIME;
+//         }
+        
+//         // Evaluate result
+//         if (sensor_time_match_function(currentCycle.water_trigger_time, THRESHOLD_WATER)) {
+//             currentCycle.sensor_results |= PumpCycle::RESULT_WATER_FAIL;
+//         }
+//     } else {
+//         // No valid release detected
+//         currentCycle.water_trigger_time = WATER_TRIGGER_MAX_TIME;
+//     }
+// }
 
 void WaterAlgorithm::logCycleComplete() {
     // Calculate volume
@@ -463,3 +498,19 @@ void WaterAlgorithm::resetFromError() {
     resetCycle();
     LOG_INFO("System reset from error state");
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
