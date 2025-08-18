@@ -15,5 +15,8 @@ void updateWaterSensors();
 String getWaterStatus();
 bool isWaterLevelLow();
 bool shouldActivatePump();
+void checkWaterSensors();
+bool readWaterSensor1();
+bool readWaterSensor2();
 
 #endif

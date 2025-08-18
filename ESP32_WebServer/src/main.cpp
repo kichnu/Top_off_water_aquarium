@@ -12,6 +12,8 @@
 #include "web/web_server.h"
 #include "config/hardware_pins.h"
 #include "hardware/fram_controller.h" 
+#include "algorithm/water_algorithm.h"  // <-- DODAJ
+#include "hardware/water_sensors.h"
 
 
 
@@ -82,6 +84,11 @@ void loop() {
     
     // Update water sensors every loop
     updateWaterSensors();
+
+    waterAlgorithm.update();  // <-- DODAJ
+    
+    // Check water sensors  
+    checkWaterSensors();
 
       // Check pump auto-enable timer
     checkPumpAutoEnable();

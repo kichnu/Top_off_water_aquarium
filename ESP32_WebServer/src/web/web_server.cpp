@@ -29,6 +29,9 @@ void initWebServer() {
     server.on("/api/pump/extended", HTTP_POST, handlePumpExtended);
     server.on("/api/pump/stop", HTTP_POST, handlePumpStop);
 
+    // Add aggregate status endpoint
+    server.on("/status/aggregate", HTTP_GET, handleStatusAggregate);  // <-- DODAJ
+
     server.on("/api/pump-settings", HTTP_GET | HTTP_POST, handlePumpSettings);
 
     server.on("/api/pump-toggle", HTTP_GET | HTTP_POST, handlePumpToggle);

@@ -13,6 +13,8 @@
 #include <ArduinoJson.h>
 #include "../config/config.h"
 
+#include "../algorithm/water_algorithm.h"
+
 
 void handleDashboard(AsyncWebServerRequest* request) {
     if (!checkAuthentication(request)) {
@@ -251,4 +253,33 @@ void handlePumpToggle(AsyncWebServerRequest* request) {
         serializeJson(json, response);
         request->send(200, "application/json", response);
     }
+}
+
+void handleStatusAggregate(AsyncWebServerRequest *request) {
+    uint8_t xx, yy, zz;
+    uint16_t vvvv;
+    
+    waterAlgorithm.getAggregateData(xx, yy, zz, vvvv);
+    
+    char aggregateStr[20];
+    if (waterAlgorithm.getLastError() != ERROR_NONE) {
+        const char* errorStr = (waterAlgorithm.getLastError() == ERROR_DAILY_LIMIT) ? "ERR1" :
+                               (waterAlgorithm.getLastError() == ERROR_PUMP_FAILURE) ? "ERR2" : "ERR0";
+        snprintf(aggregateStr, sizeof(aggregateStr), "%02d-%02d-%02d-%s", 
+                xx, yy, zz, errorStr);
+    } else if (vvvv > 9999) {
+        snprintf(aggregateStr, sizeof(aggregateStr), "%02d-%02d-%02d-OVER", xx, yy, zz);
+    } else {
+        snprintf(aggregateStr, sizeof(aggregateStr), "%02d-%02d-%02d-%04d", xx, yy, zz, vvvv);
+    }
+    
+    JsonDocument doc;
+    doc["aggregate"] = aggregateStr;
+    doc["state"] = waterAlgorithm.getStateString();
+    doc["daily_volume_ml"] = waterAlgorithm.getDailyVolume();
+    doc["in_cycle"] = waterAlgorithm.isInCycle();
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
 }

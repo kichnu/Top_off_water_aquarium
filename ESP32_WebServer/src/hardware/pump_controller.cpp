@@ -6,12 +6,17 @@
 #include "../core/logging.h"
 #include <math.h>
 
+#include "../algorithm/water_algorithm.h"  // <-- DODAJ
+
 
 
 bool pumpRunning = false;
 unsigned long pumpStartTime = 0;
 unsigned long pumpDuration = 0;
 String currentActionType = "";
+
+static bool pumpActive = false;
+static bool manualPumpActive = false;
 
 void initPumpController() {
     pinMode(PUMP_RELAY_PIN, OUTPUT);
@@ -47,9 +52,24 @@ void updatePumpController() {
         logEventToVPS(currentActionType, volumeML, getCurrentTimestamp());
         currentActionType = "";
     }
+
+      static bool wasManualActive = false;
+    if (wasManualActive && !manualPumpActive && !pumpRunning) {
+        waterAlgorithm.onManualPumpComplete();
+        wasManualActive = false;
+    }
+    if (manualPumpActive) {
+        wasManualActive = true;
+    }
 }
 
 bool triggerPump(uint16_t durationSeconds, const String& actionType) {
+
+    // Notify algorithm about manual pump
+    if (!waterAlgorithm.requestManualPump(pumpDuration)) {
+        LOG_WARNING("Algorithm rejected manual pump request");
+        return false;
+    }
 
     LOG_INFO("%s", "TRigger pump");
     if (pumpRunning) {
