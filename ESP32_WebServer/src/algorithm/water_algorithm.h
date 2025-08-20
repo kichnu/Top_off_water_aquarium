@@ -2,6 +2,7 @@
 #define WATER_ALGORITHM_H
 
 #include "algorithm_config.h"
+#include "../hardware/fram_controller.h"
 #include <vector>
 
 class WaterAlgorithm {
@@ -18,12 +19,21 @@ private:
     uint32_t sensor2ReleaseTime;
     uint32_t pumpStartTime;
     uint32_t lastPumpTime;
+    bool permission_log;
+
+    // FRAM cycle management
+    std::vector<PumpCycle> framCycles;    // Cykle załadowane z FRAM
+    uint32_t lastFRAMCleanup;             // Ostatnie czyszczenie FRAM
+    bool framDataLoaded;                  // Czy dane z FRAM zostały załadowane
     
     // Sensor states
     bool lastSensor1State;
     bool lastSensor2State;
     bool waitingForSecondSensor;
     uint8_t pumpAttempts;
+
+    // State control flags
+    bool cycleLogged;
     
     // Daily volume tracking
     std::vector<PumpCycle> todayCycles;
@@ -46,9 +56,16 @@ private:
     uint16_t calculateDailyVolume();
     void startErrorSignal(ErrorCode error);
     void updateErrorSignal();
+
+    // FRAM integration methods
+    void loadCyclesFromStorage();
+    void saveCycleToStorage(const PumpCycle& cycle);
+    void calculateAggregateFromFRAM(uint8_t& xx, uint8_t& yy, uint8_t& zz);
     
 public:
     WaterAlgorithm();
+
+    uint32_t getCurrentTimeSeconds() const { return millis() / 1000; }
     
     // Main algorithm update - call this from loop()
     void update();

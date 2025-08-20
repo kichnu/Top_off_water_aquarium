@@ -64,23 +64,26 @@ void updatePumpController() {
 }
 
 bool triggerPump(uint16_t durationSeconds, const String& actionType) {
-
-    // Notify algorithm about manual pump
-    if (!waterAlgorithm.requestManualPump(pumpDuration)) {
-        LOG_WARNING("Algorithm rejected manual pump request");
-        return false;
-    }
-
-    LOG_INFO("%s", "TRigger pump");
+    LOG_INFO("triggerPump called: %s for %ds", actionType.c_str(), durationSeconds);
+    
     if (pumpRunning) {
         LOG_WARNING("Pump already running, ignoring trigger");
         return false;
     }
 
-        if (!pumpGlobalEnabled) {
+    if (!pumpGlobalEnabled) {
         LOG_INFO("Pump trigger blocked - globally disabled");
         return false;
     }
+    
+    // TYLKO dla manual pump notify algorithm
+    if (actionType.startsWith("MANUAL")) {
+        if (!waterAlgorithm.requestManualPump(durationSeconds * 1000)) {
+            LOG_WARNING("Algorithm rejected manual pump request");
+            return false;
+        }
+    }
+    // Dla AUTO_PUMP nie wywołuj requestManualPump!
     
     digitalWrite(PUMP_RELAY_PIN, HIGH);
     pumpRunning = true;
@@ -91,6 +94,35 @@ bool triggerPump(uint16_t durationSeconds, const String& actionType) {
     LOG_INFO("Pump started: %s for %d seconds", actionType.c_str(), durationSeconds);
     return true;
 }
+
+// bool triggerPump(uint16_t durationSeconds, const String& actionType) {
+
+//     // Notify algorithm about manual pump
+//     if (!waterAlgorithm.requestManualPump(pumpDuration)) {
+//         LOG_WARNING("Algorithm rejected manual pump request");
+//         return false;
+//     }
+
+//     LOG_INFO("%s", "TRigger pump");
+//     if (pumpRunning) {
+//         LOG_WARNING("Pump already running, ignoring trigger");
+//         return false;
+//     }
+
+//         if (!pumpGlobalEnabled) {
+//         LOG_INFO("Pump trigger blocked - globally disabled");
+//         return false;
+//     }
+    
+//     digitalWrite(PUMP_RELAY_PIN, HIGH);
+//     pumpRunning = true;
+//     pumpStartTime = millis();
+//     pumpDuration = durationSeconds * 1000UL;
+//     currentActionType = actionType;
+    
+//     LOG_INFO("Pump started: %s for %d seconds", actionType.c_str(), durationSeconds);
+//     return true;
+// }
 
 bool isPumpActive() {
     return pumpRunning;

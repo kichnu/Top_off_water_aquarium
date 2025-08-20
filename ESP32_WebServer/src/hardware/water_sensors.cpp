@@ -111,12 +111,12 @@ void checkWaterSensors() {
     
     bool currentSensor1 = digitalRead(WATER_SENSOR_1_PIN) == LOW;
     bool currentSensor2 = digitalRead(WATER_SENSOR_2_PIN) == LOW;
-    uint32_t currentTime = millis();
+    uint32_t currentTimeSeconds = millis() / 1000; // <-- Konwersja do sekund
     
-    // Sensor 1 with 1 second debouncing
+    // Sensor 1 with debouncing
     if (currentSensor1 != lastSensor1) {
-        if (currentTime - lastDebounce1 > SENSOR_DEBOUNCE_TIME * 1000) {
-            lastDebounce1 = currentTime;
+        if (currentTimeSeconds - lastDebounce1 > SENSOR_DEBOUNCE_TIME) { // <-- USUŃ * 1000
+            lastDebounce1 = currentTimeSeconds;
             lastSensor1 = currentSensor1;
             
             // Notify algorithm
@@ -126,10 +126,10 @@ void checkWaterSensors() {
         }
     }
     
-    // Sensor 2 with 1 second debouncing
+    // Sensor 2 with debouncing
     if (currentSensor2 != lastSensor2) {
-        if (currentTime - lastDebounce2 > SENSOR_DEBOUNCE_TIME * 1000) {
-            lastDebounce2 = currentTime;
+        if (currentTimeSeconds - lastDebounce2 > SENSOR_DEBOUNCE_TIME) { // <-- USUŃ * 1000
+            lastDebounce2 = currentTimeSeconds;
             lastSensor2 = currentSensor2;
             
             // Notify algorithm
@@ -139,6 +139,43 @@ void checkWaterSensors() {
         }
     }
 }
+
+// void checkWaterSensors() {
+//     static bool lastSensor1 = false;
+//     static bool lastSensor2 = false;
+//     static uint32_t lastDebounce1 = 0;
+//     static uint32_t lastDebounce2 = 0;
+    
+//     bool currentSensor1 = digitalRead(WATER_SENSOR_1_PIN) == LOW;
+//     bool currentSensor2 = digitalRead(WATER_SENSOR_2_PIN) == LOW;
+//     uint32_t currentTime = millis();
+    
+//     // Sensor 1 with 1 second debouncing
+//     if (currentSensor1 != lastSensor1) {
+//         if (currentTime - lastDebounce1 > SENSOR_DEBOUNCE_TIME * 1000) {
+//             lastDebounce1 = currentTime;
+//             lastSensor1 = currentSensor1;
+            
+//             // Notify algorithm
+//             waterAlgorithm.onSensorStateChange(1, currentSensor1);
+            
+//             LOG_INFO("Sensor 1: %s", currentSensor1 ? "TRIGGERED" : "NORMAL");
+//         }
+//     }
+    
+//     // Sensor 2 with 1 second debouncing
+//     if (currentSensor2 != lastSensor2) {
+//         if (currentTime - lastDebounce2 > SENSOR_DEBOUNCE_TIME * 1000) {
+//             lastDebounce2 = currentTime;
+//             lastSensor2 = currentSensor2;
+            
+//             // Notify algorithm
+//             waterAlgorithm.onSensorStateChange(2, currentSensor2);
+            
+//             LOG_INFO("Sensor 2: %s", currentSensor2 ? "TRIGGERED" : "NORMAL");
+//         }
+//     }
+// }
 
 // Compatibility functions for old code
 void updateWaterSensors() {

@@ -3,6 +3,9 @@
 #include "../config/hardware_pins.h"
 #include <Wire.h>
 #include <Adafruit_FRAM_I2C.h>
+#include "../algorithm/algorithm_config.h"
+
+
 
 
 
@@ -214,4 +217,138 @@ void testFRAM() {
     saveVolumeToFRAM(1.0);
     
     LOG_INFO("=== FRAM Test Complete ===");
+}
+
+bool saveCycleToFRAM(const PumpCycle& cycle) {
+    if (!framInitialized) {
+        LOG_ERROR("FRAM not initialized for cycle save");
+        return false;
+    }
+    
+    // Read current cycle count and index
+    uint16_t cycleCount = 0;
+    uint16_t writeIndex = 0;
+    
+    fram.read(FRAM_ADDR_CYCLE_COUNT, (uint8_t*)&cycleCount, 2);
+    fram.read(FRAM_ADDR_CYCLE_INDEX, (uint8_t*)&writeIndex, 2);
+    
+    // Calculate write address
+    uint16_t writeAddr = FRAM_ADDR_CYCLE_DATA + (writeIndex * FRAM_CYCLE_SIZE);
+    
+    // Write cycle data
+    fram.write(writeAddr, (uint8_t*)&cycle, sizeof(PumpCycle));
+    
+    // Update circular buffer index
+    writeIndex = (writeIndex + 1) % FRAM_MAX_CYCLES;
+    fram.write(FRAM_ADDR_CYCLE_INDEX, (uint8_t*)&writeIndex, 2);
+    
+    // Update count (max FRAM_MAX_CYCLES)
+    if (cycleCount < FRAM_MAX_CYCLES) {
+        cycleCount++;
+        fram.write(FRAM_ADDR_CYCLE_COUNT, (uint8_t*)&cycleCount, 2);
+    }
+    
+    LOG_INFO("Cycle saved to FRAM at index %d (total: %d)", 
+             (writeIndex - 1 + FRAM_MAX_CYCLES) % FRAM_MAX_CYCLES, cycleCount);
+    
+    return true;
+}
+
+bool loadCyclesFromFRAM(std::vector<PumpCycle>& cycles, uint16_t maxCount) {
+    if (!framInitialized) {
+        LOG_ERROR("FRAM not initialized for cycle load");
+        return false;
+    }
+    
+    cycles.clear();
+    
+    // Read cycle count and current index
+    uint16_t cycleCount = 0;
+    uint16_t writeIndex = 0;
+    
+    fram.read(FRAM_ADDR_CYCLE_COUNT, (uint8_t*)&cycleCount, 2);
+    fram.read(FRAM_ADDR_CYCLE_INDEX, (uint8_t*)&writeIndex, 2);
+    
+    if (cycleCount == 0) {
+        LOG_INFO("No cycles found in FRAM");
+        return true;
+    }
+    
+    // Limit count to requested max
+    uint16_t loadCount = (cycleCount > maxCount) ? maxCount : cycleCount;
+    
+    // Calculate start index (load most recent cycles)
+    uint16_t startIndex;
+    if (cycleCount < FRAM_MAX_CYCLES) {
+        // Buffer not full, start from beginning
+        startIndex = (cycleCount >= loadCount) ? (cycleCount - loadCount) : 0;
+    } else {
+        // Buffer full, start from writeIndex - loadCount
+        startIndex = (writeIndex + FRAM_MAX_CYCLES - loadCount) % FRAM_MAX_CYCLES;
+    }
+    
+    // Load cycles
+    for (uint16_t i = 0; i < loadCount; i++) {
+        uint16_t readIndex = (startIndex + i) % FRAM_MAX_CYCLES;
+        uint16_t readAddr = FRAM_ADDR_CYCLE_DATA + (readIndex * FRAM_CYCLE_SIZE);
+        
+        PumpCycle cycle;
+        fram.read(readAddr, (uint8_t*)&cycle, sizeof(PumpCycle));
+        
+        // Basic validation
+        if (cycle.timestamp > 0 && cycle.timestamp < 0xFFFFFFFF) {
+            cycles.push_back(cycle);
+        }
+    }
+    
+    LOG_INFO("Loaded %d cycles from FRAM (requested: %d, available: %d)", 
+             cycles.size(), loadCount, cycleCount);
+    
+    return true;
+}
+
+uint16_t getCycleCountFromFRAM() {
+    if (!framInitialized) return 0;
+    
+    uint16_t cycleCount = 0;
+    fram.read(FRAM_ADDR_CYCLE_COUNT, (uint8_t*)&cycleCount, 2);
+    return cycleCount;
+}
+
+bool clearOldCyclesFromFRAM(uint32_t olderThanDays) {
+    if (!framInitialized) return false;
+    
+    uint32_t cutoffTime = (millis() / 1000) - (olderThanDays * 24 * 3600);
+    
+    // For now, simple implementation - clear all if any is too old
+    // More sophisticated implementation would compact the data
+    
+    std::vector<PumpCycle> allCycles;
+    if (!loadCyclesFromFRAM(allCycles)) return false;
+    
+    // Filter recent cycles
+    std::vector<PumpCycle> recentCycles;
+    for (const auto& cycle : allCycles) {
+        if (cycle.timestamp >= cutoffTime) {
+            recentCycles.push_back(cycle);
+        }
+    }
+    
+    if (recentCycles.size() == allCycles.size()) {
+        LOG_INFO("No old cycles to clear");
+        return true;
+    }
+    
+    // Reset FRAM cycle data
+    uint16_t zero = 0;
+    fram.write(FRAM_ADDR_CYCLE_COUNT, (uint8_t*)&zero, 2);
+    fram.write(FRAM_ADDR_CYCLE_INDEX, (uint8_t*)&zero, 2);
+    
+    // Save recent cycles back
+    for (const auto& cycle : recentCycles) {
+        saveCycleToFRAM(cycle);
+    }
+    
+    LOG_INFO("Cleared old cycles, kept %d recent cycles", recentCycles.size());
+    return true;
 }
