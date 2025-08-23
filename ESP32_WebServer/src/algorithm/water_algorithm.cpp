@@ -34,15 +34,8 @@ WaterAlgorithm::WaterAlgorithm() {
 
 void WaterAlgorithm::resetCycle() {
 
-        // DEBUGGING - sprawdź co było przed resetem
-    if (currentCycle.time_gap_1 > 0 || sensor1TriggerTime > 0) {
-        LOG_WARNING("RESET CYCLE called - LOSING DATA!");
-        LOG_WARNING("  time_gap_1: %d, sensor1Trigger: %d, sensor2Trigger: %d", 
-                   currentCycle.time_gap_1, sensor1TriggerTime, sensor2TriggerTime);
-        LOG_WARNING("  currentState: %s", getStateString());
-    }
     currentCycle = {};
-    currentCycle.timestamp = getCurrentTimeSeconds(); // <-- Sekundy zamiast millis() / 1000
+    currentCycle.timestamp = getCurrentTimeSeconds(); 
     triggerStartTime = 0;
     sensor1TriggerTime = 0;
     sensor2TriggerTime = 0;
@@ -82,20 +75,10 @@ void WaterAlgorithm::update() {
 
         case STATE_IDLE:
 
-            if(permission_log){
-                LOG_INFO("===================case STATE_IDLE");
-                permission_log = false;      
-            }
-            // Waiting for trigger - handled by onSensorStateChange
             break;
 
         case STATE_TRYB_1_WAIT:
 
-            if(permission_log){
-                LOG_INFO("===================case STATE_TRYB_1_WAIT");
-                permission_log = false;      
-            }   
-        
             if (stateElapsed >= TIME_GAP_1_MAX) { // <-- USUŃ * 1000
                 // Timeout - proceed with max value
                 currentCycle.time_gap_1 = TIME_GAP_1_MAX;
@@ -115,12 +98,6 @@ void WaterAlgorithm::update() {
                     
         case STATE_TRYB_1_DELAY:
 
-            if(permission_log){
-                LOG_INFO("===================case STATE_TRYB_1_DELAY");
-                permission_log = false;      
-            } 
-        
-        
             // Wait TIME_TO_PUMP from original trigger
             if (currentTime - triggerStartTime >= TIME_TO_PUMP) { // <-- USUŃ * 1000
                 // Calculate pump work time from volume setting
@@ -152,11 +129,6 @@ void WaterAlgorithm::update() {
             
         case STATE_TRYB_2_PUMP:
 
-            if(permission_log){
-                LOG_INFO("===================case STATE_TRYB_2_PUMP");
-                permission_log = false;      
-            } 
-
             // Pump is running, wait for completion
             if (!isPumpActive()) {
                 // Pump finished, check sensor response
@@ -168,8 +140,7 @@ void WaterAlgorithm::update() {
 
         case STATE_TRYB_2_VERIFY: {
 
-
-                static uint32_t lastStatusLog = 0;
+            static uint32_t lastStatusLog = 0;
             if (currentTime - lastStatusLog >= 5) { // Co 5 sekund
                 uint32_t timeSincePumpStart = currentTime - pumpStartTime;
                 LOG_INFO("TRYB_2_VERIFY: Waiting for sensors... %ds/%ds (attempt %d/%d)", 
@@ -232,59 +203,6 @@ void WaterAlgorithm::update() {
             break;
         }
 
-
-        // case STATE_TRYB_2_VERIFY: {
-
-        //     if(permission_log){
-        //         LOG_INFO("=================case STATE_TRYB_2_VERIFY");
-        //         permission_log = false;      
-        //     } 
-
-            
-        //     // Check if sensors deactivated (water level rose)
-        //     bool sensorsOK = !readWaterSensor1() && !readWaterSensor2();
-            
-        //     if (sensorsOK) {
-        //         // Success! Calculate water trigger time
-        //         calculateWaterTrigger();
-        //         LOG_INFO("TRYB_2: Sensors deactivated, water_trigger_time: %ds", 
-        //                 currentCycle.water_trigger_time);
-                
-        //         // Check if we need to measure TIME_GAP_2 - TYLKO gdy TRYB_1_result == 0
-        //         uint8_t tryb1Result = sensor_time_match_function(currentCycle.time_gap_1, THRESHOLD_1);
-        //         if (tryb1Result == 0) { // <-- POPRAWKA LOGIKI: sprawdź wynik funkcji, nie bit flag
-        //             currentState = STATE_TRYB_2_WAIT_GAP2;
-        //             stateStartTime = currentTime;
-        //             waitingForSecondSensor = true;
-        //             LOG_INFO("TRYB_2: TRYB_1_result=0, waiting for TIME_GAP_2");
-        //         } else {
-        //             // Skip TIME_GAP_2 measurement
-        //             LOG_INFO("TRYB_2: TRYB_1_result=1, skipping TIME_GAP_2");
-        //             currentState = STATE_LOGGING;
-        //             stateStartTime = currentTime;
-        //         }
-        //     } else if (stateElapsed >= WATER_TRIGGER_MAX_TIME) { // <-- USUŃ * 1000
-        //         // Timeout - sensors didn't respond
-        //         currentCycle.water_trigger_time = WATER_TRIGGER_MAX_TIME;
-                
-        //         if (pumpAttempts < PUMP_MAX_ATTEMPTS) {
-        //             // Try again
-        //             LOG_WARNING("TRYB_2: Sensors didn't respond, retry %d/%d", 
-        //                     pumpAttempts + 1, PUMP_MAX_ATTEMPTS);
-        //             currentState = STATE_TRYB_1_DELAY;
-        //             stateStartTime = currentTime - TIME_TO_PUMP; // <-- USUŃ * 1000, immediate retry
-        //         } else {
-        //             // All attempts failed
-        //             LOG_ERROR("TRYB_2: All pump attempts failed!");
-        //             currentCycle.error_code = ERROR_PUMP_FAILURE;
-        //             startErrorSignal(ERROR_PUMP_FAILURE);
-        //             currentState = STATE_ERROR;
-        //         }
-        //     }
-        //     break;
-        // } 
-
-
         case STATE_TRYB_2_WAIT_GAP2: 
             // DEBUGGING - sprawdź czy mamy release times
             static bool debugOnce = true;
@@ -322,31 +240,6 @@ void WaterAlgorithm::update() {
                 stateStartTime = currentTime;
             }
     break;
-        
-        // case STATE_TRYB_2_WAIT_GAP2: 
-
-        //     if(permission_log){
-        //         LOG_INFO("==================case STATE_TRYB_2_WAIT_GAP2");
-        //         permission_log = false;      
-        //     } 
-
-        
-        //     // Waiting for TIME_GAP_2 measurement
-        //     if (!waitingForSecondSensor || stateElapsed >= TIME_GAP_2_MAX) { // <-- USUŃ * 1000
-        //         if (stateElapsed >= TIME_GAP_2_MAX) { // <-- USUŃ * 1000
-        //             currentCycle.time_gap_2 = TIME_GAP_2_MAX;
-        //             LOG_INFO("TRYB_2: TIME_GAP_2 timeout, using max: %ds", TIME_GAP_2_MAX);
-        //         }
-                
-        //         // Evaluate result
-        //         if (sensor_time_match_function(currentCycle.time_gap_2, THRESHOLD_2)) {
-        //             currentCycle.sensor_results |= PumpCycle::RESULT_GAP2_FAIL;
-        //         }
-                
-        //         currentState = STATE_LOGGING;
-        //         stateStartTime = currentTime;
-        //     }
-        //     break;
             
         case STATE_LOGGING:
 
@@ -372,16 +265,12 @@ void WaterAlgorithm::update() {
             }
             
             // Return to idle after logging time
-            if (stateElapsed >= LOGGING_TIME) { // <-- USUŃ * 1000
+            if (stateElapsed >= LOGGING_TIME) { 
                 LOG_INFO("Cycle complete, returning to IDLE######################################################");
                 currentState = STATE_IDLE;
                 resetCycle();
             }
             break;
-
-
-
-        
     }
 }
 
@@ -418,11 +307,11 @@ void WaterAlgorithm::onSensorStateChange(uint8_t sensorNum, bool triggered) {
                 waitingForSecondSensor = true;
                 
                 // Record which sensor triggered first
-                if (sensorNum == 1 && !sensor2TriggerTime) {
-                    LOG_INFO("Sensor 1 triggered first");
-                } else if (sensorNum == 2 && !sensor1TriggerTime) {
-                    LOG_INFO("Sensor 2 triggered first");
-                }
+                // if (sensorNum == 1 && !sensor2TriggerTime) {
+                //     LOG_INFO("Sensor 1 triggered first");
+                // } else if (sensorNum == 2 && !sensor1TriggerTime) {
+                //     LOG_INFO("Sensor 2 triggered first");
+                // }
             }
             break;
             
@@ -461,29 +350,21 @@ void WaterAlgorithm::onSensorStateChange(uint8_t sensorNum, bool triggered) {
     }
 }
 
-// void WaterAlgorithm::calculateTimeGap1() {
-//     if (sensor1TriggerTime && sensor2TriggerTime) {
-//         // Oblicz różnicę w sekundach (bez dzielenia przez 1000!)
-//         currentCycle.time_gap_1 = abs((int32_t)sensor2TriggerTime - 
-//                                       (int32_t)sensor1TriggerTime);
-        
-//         LOG_INFO("TIME_GAP_1 calculated: %ds", currentCycle.time_gap_1);
-//     }
-// }
-
 void WaterAlgorithm::calculateTimeGap1() {
+
+
     if (sensor1TriggerTime && sensor2TriggerTime) {
         currentCycle.time_gap_1 = abs((int32_t)sensor2TriggerTime - 
                                       (int32_t)sensor1TriggerTime);
         
-        LOG_INFO("TIME_GAP_1 calculated: %ds (s1:%ds, s2:%ds)", 
-                currentCycle.time_gap_1, sensor1TriggerTime, sensor2TriggerTime);
+        // LOG_INFO("TIME_GAP_1 calculated: %ds (s1:%ds, s2:%ds)", 
+        //         currentCycle.time_gap_1, sensor1TriggerTime, sensor2TriggerTime);
         
-        // DODAJ DEBUGGING - sprawdź czy wartość się nie zmienia
-        LOG_INFO("DEBUG: currentCycle.time_gap_1 stored as: %d", currentCycle.time_gap_1);
+        // // DODAJ DEBUGGING - sprawdź czy wartość się nie zmienia
+        // LOG_INFO("DEBUG: currentCycle.time_gap_1 stored as: %d", currentCycle.time_gap_1);
     } else {
-        LOG_WARNING("TIME_GAP_1 not calculated: s1Time=%d, s2Time=%d", 
-                   sensor1TriggerTime, sensor2TriggerTime);
+        // LOG_WARNING("TIME_GAP_1 not calculated: s1Time=%d, s2Time=%d", 
+        //            sensor1TriggerTime, sensor2TriggerTime);
     }
 }
 
@@ -545,19 +426,6 @@ void WaterAlgorithm::logCycleComplete() {
         }
     }
 
-    LOG_INFO("=== DEBUGGING CYCLE VALUES ===");
-    LOG_INFO("currentCycle.time_gap_1 = %d", currentCycle.time_gap_1);
-    LOG_INFO("currentCycle.time_gap_2 = %d", currentCycle.time_gap_2);
-    LOG_INFO("currentCycle.water_trigger_time = %d", currentCycle.water_trigger_time);
-    LOG_INFO("sensor1TriggerTime = %d", sensor1TriggerTime);
-    LOG_INFO("sensor2TriggerTime = %d", sensor2TriggerTime);
-    LOG_INFO("sensor1ReleaseTime = %d", sensor1ReleaseTime);
-    LOG_INFO("sensor2ReleaseTime = %d", sensor2ReleaseTime);
-    LOG_INFO("pumpStartTime = %d", pumpStartTime);
-
-
-
-
     // Calculate volume based on actual pump duration
     uint16_t actualVolumeML = (uint16_t)(currentCycle.pump_duration * currentPumpSettings.volumePerSecond);
     currentCycle.volume_dose = actualVolumeML; // Store in 10ml units?????????????????????????????????????????????????????????????
@@ -615,23 +483,6 @@ bool WaterAlgorithm::requestManualPump(uint16_t duration_ms) {
     return true;
 }
 
-
-// bool WaterAlgorithm::requestManualPump(uint16_t duration_ms) {
-//     if (currentState == STATE_ERROR) {
-//         LOG_WARNING("Cannot start manual pump in error state");
-//         return false;
-//     }
-    
-//     if (currentState != STATE_IDLE) {
-//         // Interrupt current cycle
-//         LOG_INFO("Manual pump interrupting current cycle");
-//         currentState = STATE_MANUAL_OVERRIDE;
-//         resetCycle();
-//     }
-    
-//     // Manual pump handled by pump_controller
-//     return true;
-// }
 
 void WaterAlgorithm::onManualPumpComplete() {
     if (currentState == STATE_MANUAL_OVERRIDE) {

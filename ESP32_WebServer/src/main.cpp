@@ -82,6 +82,22 @@ void loop() {
     static unsigned long lastUpdate = 0;
     unsigned long now = millis();
     
+    // DAILY RESTART CHECK - 24 godziny
+    if (now > 86400000UL) { // 24h w ms
+        LOG_INFO("=== DAILY RESTART: 24h uptime reached ===");
+        
+        // Opcjonalnie: zatrzymaj pompę przed restartem
+        if (isPumpActive()) {
+            stopPump();
+            LOG_INFO("Pump stopped before restart");
+            delay(1000); // Daj czas na zatrzymanie
+        }
+        
+        LOG_INFO("System restarting in 3 seconds...");
+        delay(3000);
+        ESP.restart();
+    }
+    
     // Update water sensors every loop
     updateWaterSensors();
 

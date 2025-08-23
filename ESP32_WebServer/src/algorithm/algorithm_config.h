@@ -10,7 +10,7 @@
 #define TIME_GAP_2_MAX          10    // 300/5 min - max oczekiwanie na drugi czujnik (TRYB_2)
 #define THRESHOLD_1             5    // 180/3 min - próg dla TIME_GAP_1
 #define THRESHOLD_2             5     // 60/1 min - próg dla TIME_GAP_2
-#define WATER_TRIGGER_MAX_TIME  15    // 120/2 min - max czas na reakcję czujników po pompie
+#define WATER_TRIGGER_MAX_TIME  15    // 120/2 min - max czas na reakcję czujników po starcie pompy
 #define THRESHOLD_WATER         10     // 30s - próg dla WATER_TRIGGER_TIME
 #define LOGGING_TIME            5      // 5s - czas na logowanie po cyklu
 #define SENSOR_DEBOUNCE_TIME    1      // 1s - debouncing czujników
@@ -20,12 +20,18 @@
 // ============== PARAMETRY POMPY ==============
 #define PUMP_MAX_ATTEMPTS       3      // Maksymalna liczba prób pompy w TRYB_2
 #define SINGLE_DOSE_VOLUME      100    // ml - objętość jednej dolewki
-#define FILL_WATER_MAX          2000   // ml - max dolewka na dobę
+#define FILL_WATER_MAX          2400   // ml - max dolewka na dobę
 
 // ============== SYGNALIZACJA BŁĘDÓW ==============
-#define ERROR_PULSE_HIGH        500    // ms - czas impulsu HIGH
-#define ERROR_PULSE_LOW         500    // ms - czas przerwy między impulsami
-#define ERROR_PAUSE             3000   // ms - pauza przed powtórzeniem sekwencji
+#define ERROR_PULSE_HIGH        100    // ms - czas impulsu HIGH
+#define ERROR_PULSE_LOW         100    // ms - czas przerwy między impulsami
+#define ERROR_PAUSE             2000   // ms - pauza przed powtórzeniem sekwencji
+
+// ============== SPRAWDZENIA INTEGRALNOŚCI ==============
+// static_assert(TIME_TO_PUMP >= 300 && TIME_TO_PUMP <= 600, "TIME_TO_PUMP must be 300-600s");
+// static_assert(TIME_TO_PUMP > (TIME_GAP_1_MAX + 10), "TIME_TO_PUMP must be > TIME_GAP_1_MAX + 10s");
+// static_assert(TIME_TO_PUMP > (THRESHOLD_1 + 30), "TIME_TO_PUMP must be > THRESHOLD_1 + 30s");
+// static_assert(WATER_TRIGGER_MAX_TIME > 30, "WATER_TRIGGER_MAX_TIME must be > typical pump work time");
 
 
 // ============== STANY ALGORYTMU ==============
