@@ -17,6 +17,13 @@ struct PumpCycle;
 #define FRAM_ADDR_VOLUME_ML    0x0006  // 4 bytes - volume per second (float)
 #define FRAM_ADDR_CHECKSUM     0x000A  // 2 bytes - simple checksum
 
+// NOWE: Statystyki błędów (12 bytes total)
+#define FRAM_ADDR_GAP1_SUM     0x000C  // 2 bytes - gap1_fail_sum
+#define FRAM_ADDR_GAP2_SUM     0x000E  // 2 bytes - gap2_fail_sum  
+#define FRAM_ADDR_WATER_SUM    0x0010  // 2 bytes - water_fail_sum
+#define FRAM_ADDR_LAST_RESET   0x0012  // 4 bytes - timestamp ostatniego resetu
+#define FRAM_ADDR_STATS_CHKSUM 0x0016  // 2 bytes - checksum statystyk
+
 // FRAM Memory Map dla cykli (po istniejących danych)
 #define FRAM_ADDR_CYCLE_COUNT  0x0020  // 2 bytes - liczba zapisanych cykli
 #define FRAM_ADDR_CYCLE_INDEX  0x0022  // 2 bytes - current write index (circular buffer)
@@ -40,5 +47,19 @@ bool saveCycleToFRAM(const PumpCycle& cycle);
 bool loadCyclesFromFRAM(std::vector<PumpCycle>& cycles, uint16_t maxCount = FRAM_MAX_CYCLES);
 uint16_t getCycleCountFromFRAM();
 bool clearOldCyclesFromFRAM(uint32_t olderThanDays = 14);
+
+// Struktura statystyk błędów
+struct ErrorStats {
+    uint16_t gap1_fail_sum;
+    uint16_t gap2_fail_sum;
+    uint16_t water_fail_sum;
+    uint32_t last_reset_timestamp;
+};
+
+// Funkcje obsługi statystyk błędów
+bool loadErrorStatsFromFRAM(ErrorStats& stats);
+bool saveErrorStatsToFRAM(const ErrorStats& stats);
+bool resetErrorStatsInFRAM();
+bool incrementErrorStats(uint8_t gap1_increment, uint8_t gap2_increment, uint8_t water_increment);
 
 #endif

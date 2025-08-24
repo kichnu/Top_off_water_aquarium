@@ -7,6 +7,9 @@
 #include "../config/hardware_pins.h"
 #include "algorithm_config.h" 
 #include "../hardware/fram_controller.h"  
+#include "../network/vps_logger.h"
+#include "../hardware/rtc_controller.h"  // <-- DODAJ I TĘ LINIĘ
+
 
 WaterAlgorithm waterAlgorithm;
 
@@ -85,9 +88,9 @@ void WaterAlgorithm::update() {
                 LOG_INFO("TRYB_1: TIME_GAP_1 timeout, using max: %ds", TIME_GAP_1_MAX);
                 
                 // Evaluate result
-                if (sensor_time_match_function(currentCycle.time_gap_1, THRESHOLD_1)) {
-                    currentCycle.sensor_results |= PumpCycle::RESULT_GAP1_FAIL;
-                }
+                // if (sensor_time_match_function(currentCycle.time_gap_1, THRESHOLD_1)) {
+                //     currentCycle.sensor_results |= PumpCycle::RESULT_GAP1_FAIL;
+                // }
                 
                 // Move to delay before pump
                 currentState = STATE_TRYB_1_DELAY;
@@ -220,21 +223,27 @@ void WaterAlgorithm::update() {
                 LOG_INFO("TRYB_2: TIME_GAP_2 calculated successfully");
                 
                 // Evaluate result
-                if (sensor_time_match_function(currentCycle.time_gap_2, THRESHOLD_2)) {
-                    currentCycle.sensor_results |= PumpCycle::RESULT_GAP2_FAIL;
-                }
+                // if (sensor_time_match_function(currentCycle.time_gap_2, THRESHOLD_2)) {
+                //     currentCycle.sensor_results |= PumpCycle::RESULT_GAP2_FAIL;
+                // }
                 
                 currentState = STATE_LOGGING;
                 stateStartTime = currentTime;
             } else if (stateElapsed >= TIME_GAP_2_MAX) {
                 currentCycle.time_gap_2 = TIME_GAP_2_MAX;
+
+                uint8_t result = sensor_time_match_function(currentCycle.time_gap_2, THRESHOLD_2);
+                if (result == 1) {
+                    currentCycle.sensor_results |= PumpCycle::RESULT_GAP2_FAIL;
+                }
+
                 LOG_WARNING("TRYB_2: TIME_GAP_2 timeout - s1Release=%ds, s2Release=%ds", 
                         sensor1ReleaseTime, sensor2ReleaseTime);
                 
                 // Evaluate result
-                if (sensor_time_match_function(currentCycle.time_gap_2, THRESHOLD_2)) {
-                    currentCycle.sensor_results |= PumpCycle::RESULT_GAP2_FAIL;
-                }
+                // if (sensor_time_match_function(currentCycle.time_gap_2, THRESHOLD_2)) {
+                //     currentCycle.sensor_results |= PumpCycle::RESULT_GAP2_FAIL;
+                // }
                 
                 currentState = STATE_LOGGING;
                 stateStartTime = currentTime;
@@ -350,23 +359,42 @@ void WaterAlgorithm::onSensorStateChange(uint8_t sensorNum, bool triggered) {
     }
 }
 
+// void WaterAlgorithm::calculateTimeGap1() {
+
+//     if (sensor1TriggerTime && sensor2TriggerTime) {
+//         currentCycle.time_gap_1 = abs((int32_t)sensor2TriggerTime - 
+//                                       (int32_t)sensor1TriggerTime);
+//     } 
+// }
+
 void WaterAlgorithm::calculateTimeGap1() {
-
-
     if (sensor1TriggerTime && sensor2TriggerTime) {
         currentCycle.time_gap_1 = abs((int32_t)sensor2TriggerTime - 
                                       (int32_t)sensor1TriggerTime);
         
-        // LOG_INFO("TIME_GAP_1 calculated: %ds (s1:%ds, s2:%ds)", 
-        //         currentCycle.time_gap_1, sensor1TriggerTime, sensor2TriggerTime);
+        // Wywołaj funkcję oceniającą zgodnie ze specyfikacją
+        uint8_t result = sensor_time_match_function(currentCycle.time_gap_1, THRESHOLD_1);
+        if (result == 1) {
+            currentCycle.sensor_results |= PumpCycle::RESULT_GAP1_FAIL;
+        }
         
-        // // DODAJ DEBUGGING - sprawdź czy wartość się nie zmienia
-        // LOG_INFO("DEBUG: currentCycle.time_gap_1 stored as: %d", currentCycle.time_gap_1);
+        LOG_INFO("TIME_GAP_1: %ds, result: %d (threshold: %ds)", 
+                currentCycle.time_gap_1, result, THRESHOLD_1);
     } else {
-        // LOG_WARNING("TIME_GAP_1 not calculated: s1Time=%d, s2Time=%d", 
-        //            sensor1TriggerTime, sensor2TriggerTime);
+        LOG_WARNING("TIME_GAP_1 not calculated: s1Time=%ds, s2Time=%ds", 
+                   sensor1TriggerTime, sensor2TriggerTime);
     }
 }
+
+// void WaterAlgorithm::calculateTimeGap2() {
+//     if (sensor1ReleaseTime && sensor2ReleaseTime) {
+//         // Oblicz różnicę w sekundach (bez dzielenia przez 1000!)
+//         currentCycle.time_gap_2 = abs((int32_t)sensor2ReleaseTime - 
+//                                       (int32_t)sensor1ReleaseTime);
+        
+//         LOG_INFO("TIME_GAP_2 calculated: %ds", currentCycle.time_gap_2);
+//     }
+// }
 
 void WaterAlgorithm::calculateTimeGap2() {
     if (sensor1ReleaseTime && sensor2ReleaseTime) {
@@ -374,7 +402,17 @@ void WaterAlgorithm::calculateTimeGap2() {
         currentCycle.time_gap_2 = abs((int32_t)sensor2ReleaseTime - 
                                       (int32_t)sensor1ReleaseTime);
         
-        LOG_INFO("TIME_GAP_2 calculated: %ds", currentCycle.time_gap_2);
+        // Wywołaj funkcję oceniającą zgodnie ze specyfikacją
+        uint8_t result = sensor_time_match_function(currentCycle.time_gap_2, THRESHOLD_2);
+        if (result == 1) {
+            currentCycle.sensor_results |= PumpCycle::RESULT_GAP2_FAIL;
+        }
+        
+        LOG_INFO("TIME_GAP_2: %ds, result: %d (threshold: %ds)", 
+                currentCycle.time_gap_2, result, THRESHOLD_2);
+    } else {
+        LOG_WARNING("TIME_GAP_2 not calculated: s1Release=%ds, s2Release=%ds", 
+                   sensor1ReleaseTime, sensor2ReleaseTime);
     }
 }
 
@@ -444,6 +482,14 @@ void WaterAlgorithm::logCycleComplete() {
     
     // Save to FRAM
     saveCycleToStorage(currentCycle);
+
+        // *** NOWE: Log complete cycle data to VPS ***
+    String timestamp = getCurrentTimestamp();
+    if (logCycleToVPS(currentCycle, timestamp)) {
+        LOG_INFO("Cycle data sent to VPS successfully");
+    } else {
+        LOG_WARNING("Failed to send cycle data to VPS");
+    }
     
     LOG_INFO("=== CYCLE COMPLETE ===");
     LOG_INFO("Actual volume: %dml (pump_duration: %ds)", actualVolumeML, currentCycle.pump_duration);

@@ -47,10 +47,16 @@ void updatePumpController() {
         
         LOG_INFO("Pump stopped after %d seconds, estimated volume: %d ml", 
                  actualDuration, volumeML);
+
+        // Log to VPS (skip AUTO_PUMP - handled by algorithm)
+        if (!currentActionType.startsWith("AUTO")) {
+            logEventToVPS(currentActionType, volumeML, getCurrentTimestamp());
+        }
+        currentActionType = "";         
         
         // Log to VPS
-        logEventToVPS(currentActionType, volumeML, getCurrentTimestamp());
-        currentActionType = "";
+        // logEventToVPS(currentActionType, volumeML, getCurrentTimestamp());
+        // currentActionType = "";
     }
 
       static bool wasManualActive = false;
